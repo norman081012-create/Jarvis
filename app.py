@@ -251,30 +251,29 @@ st.title("Jarvis 終端控制台")
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg.get("internal"):
-            # 如果解析成功，顯示這個
             with st.expander("🧠 展開 Jarvis 內部推演日誌 [Step 1~10]"):
                 st.markdown(msg["internal"])
         elif msg["role"] == "assistant" and msg.get("raw_text"):
-            # 如果解析失敗，強制顯示這個警告面板與原始文字
             with st.expander("⚠️ [除錯模式] 格式解析失敗，點此查看 AI 原始裸輸出"):
                 st.code(msg["raw_text"], language="markdown")
                 
         st.markdown(msg["content"])
 
 # ==========================================
-# 6. 核心運算邏輯 (極致防呆版)
+# 6. 核心運算邏輯 (強制模板注入 + 終極防呆版)
 # ==========================================
 if user_input := st.chat_input("輸入指令，先生..."):
     if not api_key:
         st.error("先生，請先配置 API Key。")
         st.stop()
     
+    # 畫面上只顯示乾淨的使用者輸入
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
     with st.chat_message("assistant"):
-        with st.spinner(f'Jarvis ({selected_model}) 正在運算...'):
+        with st.spinner(f'Jarvis ({selected_model}) 正在強制推演中...'):
             try:
                 model_inst = genai.GenerativeModel(
                     model_name=selected_model,
@@ -286,20 +285,42 @@ if user_input := st.chat_input("輸入指令，先生..."):
                     history_for_api.append({"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]})
                 
                 chat = model_inst.start_chat(history=history_for_api)
-                response = chat.send_message(user_input)
+                
+                # 🔥 神級直覺：強制填空模板注入 🔥
+                forced_template = f"""{user_input}
+
+【系統底層最高優先級指令：禁止跳過推演】
+你必須「直接複製」以下格式，並將內容填入。絕對不允許省略標籤或直接給出對話：
+
+<jarvis_internal>
+[Step 1]
+[Step 2]
+[Step 3]
+[Step 4]
+[Step 5]
+[Step 6]
+[Step 7]
+[Step 8]
+[Step 9]
+[Step 10]
+</jarvis_internal>
+<jarvis_output>
+(在這裡寫下最終回覆)
+</jarvis_output>"""
+
+                # 傳送加料後的模板
+                response = chat.send_message(forced_template)
                 
                 # 取得 AI 完整回傳文字
                 full_text = response.text
                 
                 # --- 終極防呆切割邏輯 ---
-                # 移除 AI 可能亂加的 Markdown 代碼區塊標記 (例如 ```xml ... ```)
                 clean_text = re.sub(r"^```[a-z]*\n", "", full_text)
                 clean_text = re.sub(r"\n```$", "", clean_text)
                 
                 internal_text = ""
                 output_text = ""
                 
-                # 更寬鬆的正則表達式，允許標籤內外有奇怪的空白或符號
                 it_match = re.search(r"<\**jarvis_internal\**.*?>\s*(.*?)\s*</\**jarvis_internal\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
                 ot_match = re.search(r"<\**jarvis_output\**.*?>\s*(.*?)\s*</\**jarvis_output\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
 
@@ -309,13 +330,12 @@ if user_input := st.chat_input("輸入指令，先生..."):
                 if ot_match:
                     output_text = ot_match.group(1).strip()
                 else:
-                    # 如果找不到 output 標籤，就把 internal 拔掉，剩下的全當作 output
                     if it_match:
                         output_text = clean_text.replace(it_match.group(0), "").strip()
                     else:
-                        output_text = clean_text # 如果連 internal 都找不到，直接全部印出來
+                        output_text = clean_text
 
-                # --- 渲染輸出 (保證按鈕一定會出現) ---
+                # --- 渲染輸出 ---
                 if internal_text:
                     with st.expander("🧠 展開 Jarvis 內部推演日誌 [Step 1~10]"):
                         st.markdown(internal_text)
@@ -328,8 +348,8 @@ if user_input := st.chat_input("輸入指令，先生..."):
                 # 紀錄歷史
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "internal": internal_text, # 解析成功的推演
-                    "raw_text": full_text,     # 始終保留最原始版本，防呆專用
+                    "internal": internal_text, 
+                    "raw_text": full_text,     
                     "content": output_text
                 })
 
