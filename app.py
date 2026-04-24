@@ -171,9 +171,9 @@ st.title("Jarvis 終端控制台")
 # 初始化 Gemini 大腦
 if api_key:
     genai.configure(api_key=api_key)
-    # 建議先用 flash 測試極速推演，穩定後再換 gemini-1.5-pro
+    # 已為您切換至最高階的 3.1 Pro 運算核心
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="gemini-3.1-pro",
         system_instruction=SYSTEM_PROMPT
     )
     if "chat_session" not in st.session_state:
