@@ -1,6 +1,6 @@
 # jarvis_config.py
 
-DEFAULT_API_KEY = "AIzaSyA8-p3ps1rGxQrG1oYS_Gjge68kZVpjw1Yc"
+DEFAULT_API_KEY = "AIzaSyA8-p3ps1rGxQrG1oYS_Gjge68kZVpjw1Y"
 
 MODULES_FOR_UI = {
     "1. 核心流程與底層架構": {
