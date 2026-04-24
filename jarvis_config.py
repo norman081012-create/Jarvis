@@ -1,7 +1,5 @@
 # jarvis_config.py
-
-DEFAULT_API_KEY = "AIzaSyA8-p3ps1rGxQrG1oYS_Gjge68kZVpjw1Y"
-
+DEFAULT_API_KEY = ""
 MODULES_FOR_UI = {
     "1. 核心流程與底層架構": {
         "Observer Mode": "觀察情緒、立場與衝突，識別最高異常值進行分析。",
