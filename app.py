@@ -57,7 +57,7 @@ col_chat, col_dash = st.columns([7, 3], gap="large")
 with col_chat:
     st.title("Jarvis 終端控制台")
     
-    # 🔥 渲染歷史對話 (現在這裡 100% 乾淨，不再有任何除錯面板)
+    # 渲染歷史對話 (100% 乾淨，不再有任何除錯面板)
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -74,7 +74,16 @@ with col_chat:
         with st.chat_message("assistant"):
             with st.spinner(f'Jarvis ({selected_model}) 戰略推演中...'):
                 try:
-                    history_for_api = [{"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]} for m in st.session_state.messages[:-1]]
+                    # 修復記憶斷層：強迫 AI 看見自己上一輪完整的 10 步驟推演
+                    history_for_api = []
+                    for m in st.session_state.messages[:-1]:
+                        if m["role"] == "user":
+                            history_for_api.append({"role": "user", "parts": [m["content"]]})
+                        else:
+                            # 把包含 Step 1~10 的 raw_text 塞回去當作它的記憶
+                            full_memory = m.get("raw_text", m["content"])
+                            history_for_api.append({"role": "model", "parts": [full_memory]})
+                            
                     forced_input = cfg.get_forced_template(user_input)
                     
                     result = engine.process_jarvis_turn(
