@@ -165,7 +165,7 @@ Dynamic Tension Patch v1.2：調節酸、罵、戲謔等高張力對話，強化
 """
 
 # ==========================================
-# 3. 模組庫存字典 (UI 側邊欄專用，僅作展示，不影響 AI 判斷)
+# 3. 模組庫存字典 (UI 側邊欄專用)
 # ==========================================
 MODULES_FOR_UI = {
     "1. 核心流程與底層架構": {
@@ -251,12 +251,18 @@ st.title("Jarvis 終端控制台")
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg.get("internal"):
+            # 如果解析成功，顯示這個
             with st.expander("🧠 展開 Jarvis 內部推演日誌 [Step 1~10]"):
-                st.text(msg["internal"])
+                st.markdown(msg["internal"])
+        elif msg["role"] == "assistant" and msg.get("raw_text"):
+            # 如果解析失敗，強制顯示這個警告面板與原始文字
+            with st.expander("⚠️ [除錯模式] 格式解析失敗，點此查看 AI 原始裸輸出"):
+                st.code(msg["raw_text"], language="markdown")
+                
         st.markdown(msg["content"])
 
 # ==========================================
-# 6. 核心運算邏輯
+# 6. 核心運算邏輯 (極致防呆版)
 # ==========================================
 if user_input := st.chat_input("輸入指令，先生..."):
     if not api_key:
@@ -281,32 +287,49 @@ if user_input := st.chat_input("輸入指令，先生..."):
                 
                 chat = model_inst.start_chat(history=history_for_api)
                 response = chat.send_message(user_input)
+                
+                # 取得 AI 完整回傳文字
                 full_text = response.text
+                
+                # --- 終極防呆切割邏輯 ---
+                # 移除 AI 可能亂加的 Markdown 代碼區塊標記 (例如 ```xml ... ```)
+                clean_text = re.sub(r"^```[a-z]*\n", "", full_text)
+                clean_text = re.sub(r"\n```$", "", clean_text)
                 
                 internal_text = ""
                 output_text = ""
                 
-                it_match = re.search(r"<jarvis_internal>(.*?)</jarvis_internal>", full_text, re.DOTALL)
+                # 更寬鬆的正則表達式，允許標籤內外有奇怪的空白或符號
+                it_match = re.search(r"<\**jarvis_internal\**.*?>\s*(.*?)\s*</\**jarvis_internal\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
+                ot_match = re.search(r"<\**jarvis_output\**.*?>\s*(.*?)\s*</\**jarvis_output\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
+
                 if it_match:
                     internal_text = it_match.group(1).strip()
                 
-                ot_match = re.search(r"<jarvis_output>(.*?)</jarvis_output>", full_text, re.DOTALL)
                 if ot_match:
                     output_text = ot_match.group(1).strip()
                 else:
-                    output_text = full_text.replace(f"<jarvis_internal>\n{internal_text}\n</jarvis_internal>", "").strip()
-                    output_text = full_text.replace(f"<jarvis_internal>{internal_text}</jarvis_internal>", "").strip()
-                    output_text = re.sub(r"</?jarvis_(internal|output)>", "", output_text).strip()
+                    # 如果找不到 output 標籤，就把 internal 拔掉，剩下的全當作 output
+                    if it_match:
+                        output_text = clean_text.replace(it_match.group(0), "").strip()
+                    else:
+                        output_text = clean_text # 如果連 internal 都找不到，直接全部印出來
 
+                # --- 渲染輸出 (保證按鈕一定會出現) ---
                 if internal_text:
                     with st.expander("🧠 展開 Jarvis 內部推演日誌 [Step 1~10]"):
-                        st.text(internal_text)
+                        st.markdown(internal_text)
+                else:
+                    with st.expander("⚠️ [除錯模式] 格式解析失敗，點此查看 AI 原始裸輸出"):
+                        st.code(full_text, language="markdown")
                 
                 st.markdown(output_text)
                 
+                # 紀錄歷史
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "internal": internal_text,
+                    "internal": internal_text, # 解析成功的推演
+                    "raw_text": full_text,     # 始終保留最原始版本，防呆專用
                     "content": output_text
                 })
 
