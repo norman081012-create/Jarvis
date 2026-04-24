@@ -4,7 +4,7 @@ import jarvis_config as cfg
 import jarvis_engine as engine
 
 # ==========================================
-# 1. 頁面與狀態初始化 (改用超寬版面)
+# 1. 頁面與狀態初始化
 # ==========================================
 st.set_page_config(page_title="Jarvis Command Center", layout="wide", initial_sidebar_state="expanded")
 
@@ -14,7 +14,7 @@ if "available_models" not in st.session_state:
     st.session_state.available_models = []
 
 # ==========================================
-# 2. 側邊欄：API 與模型鎖定 (優先選 pro-preview)
+# 2. 側邊欄：API 與模型鎖定
 # ==========================================
 with st.sidebar:
     st.title("⚙️ Jarvis 系統控制")
@@ -29,7 +29,6 @@ with st.sidebar:
                     st.error(f"無法獲取清單: {e}")
 
         if st.session_state.available_models:
-            # 優先尋找名稱包含 pro-preview 或 3.1-pro 的模型，找不到再退回 1.5-pro
             default_idx = 0
             for i, m in enumerate(st.session_state.available_models):
                 if "pro-preview" in m or "3.1-pro" in m:
@@ -58,20 +57,11 @@ col_chat, col_dash = st.columns([7, 3], gap="large")
 with col_chat:
     st.title("Jarvis 終端控制台")
     
-    # 渲染歷史對話
+    # 🔥 渲染歷史對話 (現在這裡 100% 乾淨，不再有任何除錯面板)
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            
-            # 將原始 Log 藏在最不顯眼的地方 (字體縮小、預設關閉)
-            if msg.get("internal"):
-                with st.expander("🔍 查看底層原始運算 Log (Raw Data)"):
-                    st.caption(msg["internal"].replace('\n', '  \n')) # caption 會讓字體變小變灰
-            elif msg["role"] == "assistant" and msg.get("raw_text"):
-                with st.expander("⚠️ [除錯模式] 格式解析失敗，原始裸輸出"):
-                    st.code(msg["raw_text"], language="markdown")
 
-    # 接收輸入與呼叫運作引擎
     if user_input := st.chat_input("輸入指令，先生..."):
         if not api_key:
             st.error("先生，請先配置 API Key。")
@@ -97,22 +87,13 @@ with col_chat:
                     
                     st.markdown(result["output"])
                     
-                    # 藏起原始 Log
-                    if result["internal"]:
-                        with st.expander("🔍 查看底層原始運算 Log (Raw Data)"):
-                            st.caption(result["internal"].replace('\n', '  \n'))
-                    else:
-                        with st.expander("⚠️ [除錯模式] 格式解析失敗，原始裸輸出"):
-                            st.code(result["raw_full_text"], language="markdown")
-                    
                     st.session_state.messages.append({
                         "role": "assistant",
-                        "internal": result["internal"], 
                         "raw_text": result["raw_full_text"],     
                         "content": result["output"],
-                        "parsed_dash": result["parsed_dash"] # 存入解析後的儀表板數據
+                        "parsed_dash": result["parsed_dash"]
                     })
-                    st.rerun() # 強制刷新畫面，讓右側面板更新
+                    st.rerun() 
 
                 except Exception as e:
                     st.error(f"運算中斷：{str(e)}")
@@ -125,15 +106,14 @@ with col_dash:
     st.markdown("*(擷取自最新一輪 AI 運算結果)*")
     st.divider()
     
-    # 找尋最後一筆擁有解析資料的 assistant 訊息
-    latest_data = {}
+    latest_msg = None
     for msg in reversed(st.session_state.messages):
-        if msg["role"] == "assistant" and msg.get("parsed_dash"):
-            latest_data = msg["parsed_dash"]
+        if msg["role"] == "assistant":
+            latest_msg = msg
             break
             
-    if latest_data:
-        d = latest_data
+    if latest_msg and latest_msg.get("parsed_dash"):
+        d = latest_msg["parsed_dash"]
         
         st.markdown("**1. 啟用模組 (激活)**")
         st.info(d.get("modules", "無"))
@@ -173,6 +153,12 @@ with col_dash:
         
         st.markdown("**10. 決定次輪策略 (D)**")
         st.warning(d.get("next_strategy", "無"))
+        
+        # 🔥 將 Raw Log 流放到最角落
+        st.divider()
+        st.caption("⚙️ 開發者底層監控")
+        with st.expander("🔍 展開底層原始運算 Log (Raw Data)", expanded=False):
+            st.code(latest_msg.get("raw_text", "無資料"), language="markdown")
         
     else:
         st.caption("等待首輪對話產生運算結果...")
