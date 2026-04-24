@@ -48,6 +48,7 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
     response = chat.send_message(forced_template_text)
     full_text = response.text
     
+    # 清理 markdown 區塊符號
     clean_text = re.sub(r"^```[a-z]*\n", "", full_text)
     clean_text = re.sub(r"\n```$", "", clean_text)
     
