@@ -173,7 +173,7 @@ if api_key:
     genai.configure(api_key=api_key)
     # 已為您切換至最高階的 3.1 Pro 運算核心
     model = genai.GenerativeModel(
-        model_name="gemini-3.1-pro",
+        model_name="gemini-1.5-pro",
         system_instruction=SYSTEM_PROMPT
     )
     if "chat_session" not in st.session_state:
