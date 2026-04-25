@@ -14,44 +14,47 @@ def fetch_available_models(api_key):
     return models
 
 def extract_dashboard_data(internal_text):
-    if not internal_text:
-        return {}
-        
-    plain_text = internal_text.replace('**', '').replace('* ', '')
+    if not internal_text: return {}
     
-    # 單行解析器：只抓取該行剩下的文字，絕對不跨行
-    def extract_line(pattern):
-        match = re.search(pattern, plain_text, re.IGNORECASE)
-        return match.group(1).strip() if match else "未解析到資料"
+    # 移除星號，讓正則比對不受 Markdown 粗體干擾
+    plain = internal_text.replace('**', '').replace('* ', '')
 
-    # 跨行解析器：專門用來抓取標籤和記憶等大段落
-    def extract_multi(pattern):
-        match = re.search(pattern, plain_text, re.DOTALL | re.IGNORECASE)
-        return match.group(1).strip() if match else "未解析到資料"
+    # 單行擷取：絕不跨行，保證分數不會抓到別的段落
+    def ext_line(pattern):
+        m = re.search(pattern, plain, re.IGNORECASE)
+        return m.group(1).strip() if m else "未解析到資料"
 
+    # 跨段落擷取：專門用來抓清單
+    def ext_multi(pattern):
+        m = re.search(pattern, plain, re.DOTALL | re.IGNORECASE)
+        return m.group(1).strip() if m else "未解析到資料"
+
+    # 嚴格對齊你提供的原版骨架名稱
     data = {
-        "modules": extract_line(r"激活模組.*?[:：]\s*([^\n]*)"),
+        "modules": ext_line(r"激活模組.*?[:：]\s*([^\n]*)"),
         
-        # 抓取 24 維度標籤與新增記憶 (允許跨行)
-        "tags": extract_multi(r"24維度標籤.*?[:：]\s*(.*?)(?=\n.*新增使用者專屬記憶|\[Step 4\])"),
-        "new_memory": extract_multi(r"新增使用者專屬記憶.*?[:：]\s*(.*?)(?=\n.*\[Step 4\]|\n\n)"),
+        # 標籤庫存：從「本輪結算庫存」抓到下一個 [Step 4]
+        "tags": ext_multi(r"本輪結算庫存.*?[:：]\s*(.*?)(?=\n.*\[Step 4\])"),
+        # 新增記憶：從「動態處理」抓到「本輪結算庫存」
+        "new_memory": ext_multi(r"動態處理.*?[:：]\s*(.*?)(?=\n.*本輪結算庫存)"),
         
-        "intent": extract_line(r"產生策略.*?[:：]\s*([^\n]*)"),
-        "friendly": extract_line(r"友善度.*?[:：]\s*([^\n]*)"),
-        "trust": extract_line(r"信任度.*?[:：]\s*([^\n]*)"),
-        "sai": extract_line(r"SAI 社交優勢.*?[:：]\s*([^\n]*)"),
-        "accuracy": extract_line(r"準確度.*?[:：]\s*([^\n]*)"),
+        "intent": ext_line(r"產生策略.*?[:：]\s*([^\n]*)"),
         
-        "sai_strategy": extract_line(r"修正策略.*?[:：]\s*([^\n]*)"),
-        "sai_reason": extract_line(r"\[Step 6\].*?判讀理由.*?[:：]\s*([^\n]*)"),
-        "matrix": extract_line(r"本輪設定級數.*?[:：]\s*([^\n]*)"),
-        "matrix_reason": extract_line(r"矩陣.*?判讀理由.*?[:：]\s*([^\n]*)"),
-        "strategy_b": extract_line(r"產生策略 B.*?[:：]\s*([^\n]*)"),
+        "friendly": ext_line(r"友善度 \(1~10\).*?[:：]\s*([^\n]*)"),
+        "trust": ext_line(r"信任度 \(1~10\).*?[:：]\s*([^\n]*)"),
+        "sai": ext_line(r"SAI 社交優勢 \(1~5\).*?[:：]\s*([^\n]*)"),
+        "accuracy": ext_line(r"準確度 \(1~5\).*?[:：]\s*([^\n]*)"),
         
-        "fusion": extract_line(r"融合決策.*?[:：]\s*([^\n]*)"),
+        "sai_strategy": ext_line(r"修正策略 \(強制回歸均值 3\).*?[:：]\s*([^\n]*)"),
+        "sai_reason": ext_line(r"\[Step 6\].*?判讀理由.*?[:：]\s*([^\n]*)"),
+        "matrix": ext_line(r"本輪設定級數.*?[:：]\s*([^\n]*)"),
+        "matrix_reason": ext_line(r"連動矩陣.*?判讀理由.*?[:：]\s*([^\n]*)"),
+        "strategy_b": ext_line(r"產生策略 B.*?[:：]\s*([^\n]*)"),
         
-        "new_goal": extract_line(r"新目標.*?[:：]\s*([^\n]*)"),
-        "next_strategy": extract_line(r"決定次輪策略.*?[:：]\s*([^\n]*)")
+        "fusion": ext_line(r"融合決策.*?[:：]\s*([^\n]*)"),
+        
+        "new_goal": ext_line(r"新目標 \(D\) / 目標庫存.*?[:：]\s*([^\n]*)"),
+        "next_strategy": ext_line(r"決定次輪策略 \(D\).*?[:：]\s*([^\n]*)")
     }
     return data
 
