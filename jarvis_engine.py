@@ -59,7 +59,7 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
     response = chat.send_message(forced_template_text)
     full_text = response.text
     
-    # 清理最外層可能夾帶的 markdown 區塊符號
+    # 清理 Markdown 區塊
     clean_text = re.sub(r"^```[a-z]*\n", "", full_text, flags=re.MULTILINE)
     clean_text = re.sub(r"\n```$", "", clean_text, flags=re.MULTILINE)
     
@@ -67,28 +67,23 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
     output_text = ""
     
     # ==========================================
-    # 🔪 終極暴力切割法：直接用錨點切斷字串
+    # 🔪 絕對暴力切割法：直接用 </jarvis_internal> 一刀兩斷
     # ==========================================
-    # 1. 尋找 <jarvis_output> 作為分水嶺
-    out_match = re.search(r"<jarvis_output>(.*)", clean_text, flags=re.DOTALL | re.IGNORECASE)
-    
-    if out_match:
-        output_text = out_match.group(1)
-        internal_text = clean_text[:out_match.start()]
+    if "</jarvis_internal>" in clean_text:
+        # 切成兩等份：[0]是推演邏輯，[1]是給先生的正式回覆
+        parts = clean_text.split("</jarvis_internal>", 1)
+        internal_text = parts[0]
+        output_text = parts[1]
     else:
-        # 2. 如果連 <jarvis_output> 都忘了寫，尋找 </jarvis_internal> 切割
-        int_close_match = re.search(r"</jarvis_internal>(.*)", clean_text, flags=re.DOTALL | re.IGNORECASE)
-        if int_close_match:
-            output_text = int_close_match.group(1)
-            internal_text = clean_text[:int_close_match.start()]
-        else:
-            # 3. 雙重失敗，整包丟給輸出
-            output_text = clean_text
-            internal_text = ""
+        # 如果連結尾標籤都沒生成，最糟情況就是整包丟給輸出
+        output_text = clean_text
+        internal_text = "未檢測到閉合標籤"
 
-    # 拔除內文殘留的系統標籤，確保畫面乾淨
+    # 清理可能殘留的開頭標籤或空白
+    internal_text = internal_text.replace("<jarvis_internal>", "").strip()
+    
+    # 防呆：如果 AI 還是自作聰明加了 <jarvis_output>，就把它拔掉
     output_text = re.sub(r"</?jarvis_output>", "", output_text, flags=re.IGNORECASE).strip()
-    internal_text = re.sub(r"</?jarvis_internal>", "", internal_text, flags=re.IGNORECASE).strip()
 
     # 進行資料擷取
     parsed_dash = extract_dashboard_data(internal_text)
