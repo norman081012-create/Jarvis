@@ -1,4 +1,3 @@
-# jarvis_engine.py
 import re
 import google.generativeai as genai
 
@@ -23,7 +22,7 @@ def extract_dashboard_data(internal_text):
 
     data = {
         "modules": extract(r"激活模組.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
-        "tags": extract(r"更新標籤.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
+        "tags": extract(r"更新標籤.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n|當前庫存讀取)"), # 相容舊版與新版 CRUD
         "intent": extract(r"產生策略.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
         "friendly": extract(r"友善度.*?[:：]\s*(.*?)(?=\n)"),
         "trust": extract(r"信任度.*?[:：]\s*(.*?)(?=\n)"),
