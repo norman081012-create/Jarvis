@@ -1,19 +1,17 @@
 import streamlit as st
-import streamlit.components.v1 as components
-import base64
-import io
-import re
-from gtts import gTTS
-
-# 您的自定義模組
+import streamlit.components.v1 as components # 新增：用於 1.8x 語速播放器
+import base64                                # 新增：用於 1.8x 語速播放器
 import jarvis_config as cfg
 import jarvis_engine as engine
+from gtts import gTTS
+import io
+import re
 
 # ==========================================
-# 語音輔助函數 (TTS) - 恢復為原版 gTTS (女聲)
+# 語音輔助函數 (TTS)
 # ==========================================
 def generate_audio(text):
-    """將文字轉換為語音並返回 Byte 數據 (gTTS 預設女聲)"""
+    """將文字轉換為語音並返回 Byte 數據"""
     clean_text = re.sub(r'[*_#`~]', '', text)
     if not clean_text.strip():
         return None
@@ -28,9 +26,7 @@ def generate_audio(text):
         st.error(f"語音生成失敗: {e}")
         return None
 
-# ==========================================
-# 前端播放器控制 - 恢復為原版 1.8 倍速播放器
-# ==========================================
+# 新增：強制 1.8 倍速播放器
 def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
     """利用前端 HTML/JS 強制改變語音播放速度"""
     if not audio_bytes: return
@@ -45,8 +41,7 @@ def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
             audio.playbackRate = {speed};
         </script>
     """
-    # 微微調高 component 高度至 65，避免不同瀏覽器的控制條被截斷
-    components.html(html_code, height=65)
+    components.html(html_code, height=50)
 
 # ==========================================
 # 1. 頁面與狀態初始化
@@ -219,6 +214,7 @@ with col_dash:
         st.markdown("**10. 決定次輪策略 (D)**")
         st.warning(d.get("next_strategy", "無"))
         
+        # 🔥 將 Raw Log 流放到最角落
         st.divider()
         st.caption("⚙️ 開發者底層監控")
         with st.expander("🔍 展開底層原始運算 Log (Raw Data)", expanded=False):
