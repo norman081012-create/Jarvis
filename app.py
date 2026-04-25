@@ -1,7 +1,47 @@
-# app.py
 import streamlit as st
+import streamlit.components.v1 as components # 新增：用於 1.8x 語速播放器
+import base64                                # 新增：用於 1.8x 語速播放器
 import jarvis_config as cfg
 import jarvis_engine as engine
+from gtts import gTTS
+import io
+import re
+
+# ==========================================
+# 語音輔助函數 (TTS)
+# ==========================================
+def generate_audio(text):
+    """將文字轉換為語音並返回 Byte 數據"""
+    clean_text = re.sub(r'[*_#`~]', '', text)
+    if not clean_text.strip():
+        return None
+        
+    try:
+        tts = gTTS(text=clean_text, lang='zh-tw')
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return fp.read()
+    except Exception as e:
+        st.error(f"語音生成失敗: {e}")
+        return None
+
+# 新增：強制 1.8 倍速播放器
+def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
+    """利用前端 HTML/JS 強制改變語音播放速度"""
+    if not audio_bytes: return
+    b64 = base64.b64encode(audio_bytes).decode()
+    auto_attr = "autoplay" if autoplay else ""
+    html_code = f"""
+        <audio id="jarvis_audio_{str(hash(audio_bytes))[-5:]}" controls {auto_attr} style="width: 100%; height: 40px;">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+        <script>
+            var audio = document.getElementById("jarvis_audio_{str(hash(audio_bytes))[-5:]}");
+            audio.playbackRate = {speed};
+        </script>
+    """
+    components.html(html_code, height=50)
 
 # ==========================================
 # 1. 頁面與狀態初始化
@@ -30,11 +70,14 @@ with st.sidebar:
 
         if st.session_state.available_models:
             default_idx = 0
+            # 需求 1：輸入 API 後鎖定 gemini 3.1 pro preview
             for i, m in enumerate(st.session_state.available_models):
-                if "pro-preview" in m or "3.1-pro" in m:
+                if "gemini-3.1-pro-preview" in m.lower() or "3.1-pro" in m.lower():
                     default_idx = i
                     break
-                elif "1.5-pro" in m:
+                elif "pro-preview" in m.lower() and default_idx == 0:
+                    default_idx = i
+                elif "1.5-pro" in m.lower() and default_idx == 0:
                     default_idx = i
             
             selected_model = st.selectbox("🤖 選擇運算核心 (Model)", st.session_state.available_models, index=default_idx)
@@ -57,10 +100,13 @@ col_chat, col_dash = st.columns([7, 3], gap="large")
 with col_chat:
     st.title("Jarvis 終端控制台")
     
-    # 渲染歷史對話 (100% 乾淨，不再有任何除錯面板)
+    # 渲染歷史對話
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            # 需求 2：以 1.8 倍速渲染歷史語音 (不自動播放)
+            if msg["role"] == "assistant" and msg.get("audio_bytes"):
+                render_audio_player(msg["audio_bytes"], speed=1.8, autoplay=False)
 
     if user_input := st.chat_input("輸入指令，先生..."):
         if not api_key:
@@ -80,7 +126,6 @@ with col_chat:
                         if m["role"] == "user":
                             history_for_api.append({"role": "user", "parts": [m["content"]]})
                         else:
-                            # 把包含 Step 1~10 的 raw_text 塞回去當作它的記憶
                             full_memory = m.get("raw_text", m["content"])
                             history_for_api.append({"role": "model", "parts": [full_memory]})
                             
@@ -96,11 +141,17 @@ with col_chat:
                     
                     st.markdown(result["output"])
                     
+                    # 生成語音並以 1.8 倍速自動播放
+                    audio_bytes = generate_audio(result["output"])
+                    if audio_bytes:
+                        render_audio_player(audio_bytes, speed=1.8, autoplay=True)
+                    
                     st.session_state.messages.append({
                         "role": "assistant",
                         "raw_text": result["raw_full_text"],     
                         "content": result["output"],
-                        "parsed_dash": result["parsed_dash"]
+                        "parsed_dash": result["parsed_dash"],
+                        "audio_bytes": audio_bytes # 儲存音檔
                     })
                     st.rerun() 
 
