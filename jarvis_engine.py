@@ -19,31 +19,39 @@ def extract_dashboard_data(internal_text):
         
     plain_text = internal_text.replace('**', '').replace('* ', '')
     
-    def extract(pattern):
+    # 單行解析器：只抓取該行剩下的文字，絕對不跨行
+    def extract_line(pattern):
+        match = re.search(pattern, plain_text, re.IGNORECASE)
+        return match.group(1).strip() if match else "未解析到資料"
+
+    # 跨行解析器：專門用來抓取標籤和記憶等大段落
+    def extract_multi(pattern):
         match = re.search(pattern, plain_text, re.DOTALL | re.IGNORECASE)
         return match.group(1).strip() if match else "未解析到資料"
 
-    # 完全保留原版的抓取邏輯，僅修改對應 Step 3 的標籤與記憶抓取
     data = {
-        "modules": extract(r"激活模組.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
+        "modules": extract_line(r"激活模組.*?[:：]\s*([^\n]*)"),
         
-        # 抓取 24 維度標籤與新增記憶
-        "tags": extract(r"24維度標籤.*?[:：]\s*(.*?)(?=\n.*新增使用者專屬記憶|\[Step 4\])"),
-        "new_memory": extract(r"新增使用者專屬記憶.*?[:：]\s*(.*?)(?=\n.*\[Step 4\]|\n\n)"),
+        # 抓取 24 維度標籤與新增記憶 (允許跨行)
+        "tags": extract_multi(r"24維度標籤.*?[:：]\s*(.*?)(?=\n.*新增使用者專屬記憶|\[Step 4\])"),
+        "new_memory": extract_multi(r"新增使用者專屬記憶.*?[:：]\s*(.*?)(?=\n.*\[Step 4\]|\n\n)"),
         
-        "intent": extract(r"產生策略.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
-        "friendly": extract(r"友善度.*?[:：]\s*(.*?)(?=\n)"),
-        "trust": extract(r"信任度.*?[:：]\s*(.*?)(?=\n)"),
-        "sai": extract(r"SAI 社交優勢.*?[:：]\s*(.*?)(?=\n)"),
-        "accuracy": extract(r"準確度.*?[:：]\s*(.*?)(?=\n)"),
-        "sai_strategy": extract(r"修正策略.*?[:：]\s*(.*?)(?=\n.*判讀理由)"),
-        "sai_reason": extract(r"\[Step 6\].*?判讀理由.*?[:：]\s*(.*?)(?=\n.*全知全能)"),
-        "matrix": extract(r"本輪設定級數.*?[:：]\s*(.*?)(?=\n)"),
-        "matrix_reason": extract(r"矩陣.*?判讀理由.*?[:：]\s*(.*?)(?=\n.*產生策略 B)"),
-        "strategy_b": extract(r"產生策略 B.*?[:：]\s*(.*?)(?=\n.*\[Step)"),
-        "fusion": extract(r"融合決策.*?[:：]\s*(.*?)(?=\n.*\[Step)"),
-        "new_goal": extract(r"新目標.*?[:：]\s*(.*?)(?=\n.*決定次輪)"),
-        "next_strategy": extract(r"決定次輪策略.*?[:：]\s*(.*?)(?=$|</)")
+        "intent": extract_line(r"產生策略.*?[:：]\s*([^\n]*)"),
+        "friendly": extract_line(r"友善度.*?[:：]\s*([^\n]*)"),
+        "trust": extract_line(r"信任度.*?[:：]\s*([^\n]*)"),
+        "sai": extract_line(r"SAI 社交優勢.*?[:：]\s*([^\n]*)"),
+        "accuracy": extract_line(r"準確度.*?[:：]\s*([^\n]*)"),
+        
+        "sai_strategy": extract_line(r"修正策略.*?[:：]\s*([^\n]*)"),
+        "sai_reason": extract_line(r"\[Step 6\].*?判讀理由.*?[:：]\s*([^\n]*)"),
+        "matrix": extract_line(r"本輪設定級數.*?[:：]\s*([^\n]*)"),
+        "matrix_reason": extract_line(r"矩陣.*?判讀理由.*?[:：]\s*([^\n]*)"),
+        "strategy_b": extract_line(r"產生策略 B.*?[:：]\s*([^\n]*)"),
+        
+        "fusion": extract_line(r"融合決策.*?[:：]\s*([^\n]*)"),
+        
+        "new_goal": extract_line(r"新目標.*?[:：]\s*([^\n]*)"),
+        "next_strategy": extract_line(r"決定次輪策略.*?[:：]\s*([^\n]*)")
     }
     return data
 
