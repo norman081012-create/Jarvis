@@ -48,10 +48,10 @@ def fetch_models_callback(api_key):
 # ==========================================
 # 主畫面流與調度
 # ==========================================
-# 1. 渲染側邊欄取得參數
+# 1. 渲染側邊欄取得參數 (已修正為從 ui 讀取常數)
 api_key, selected_model = ui.render_sidebar(
-    default_api_key=jp.DEFAULT_API_KEY, 
-    modules_dict=jp.MODULES_FOR_UI, 
+    default_api_key=ui.DEFAULT_API_KEY, 
+    modules_dict=ui.MODULES_FOR_UI, 
     fetch_models_callback=fetch_models_callback
 )
 
