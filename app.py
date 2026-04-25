@@ -1,14 +1,17 @@
 import streamlit as st
-import streamlit.components.v1 as components # 新增：用於 1.8x 語速播放器
-import base64                                # 新增：用於 1.8x 語速播放器
-import jarvis_config as cfg
-import jarvis_engine as engine
-from gtts import gTTS
+import streamlit.components.v1 as components
+import base64
 import io
 import re
+import asyncio
+import edge_tts  # 替換原有的 gTTS
+
+# 假設您的專案結構中有這兩個檔案，若您是寫在同一個檔案，請自行對應
+import jarvis_config as cfg
+import jarvis_engine as engine
 
 # ==========================================
-# 語音輔助函數 (TTS)
+# 語音輔助函數 (TTS) - 已替換為 Edge-TTS 微軟男聲
 # ==========================================
 def generate_audio(text):
     """將文字轉換為語音並返回 Byte 數據"""
@@ -16,17 +19,30 @@ def generate_audio(text):
     if not clean_text.strip():
         return None
         
+    # 指定微軟的台灣男聲：雲健 (YunJian)
+    voice = "zh-TW-YunJianNeural"
+
+    async def _generate_async():
+        communicate = edge_tts.Communicate(clean_text, voice)
+        audio_bytes = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_bytes += chunk["data"]
+        return audio_bytes
+
     try:
-        tts = gTTS(text=clean_text, lang='zh-tw')
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        fp.seek(0)
-        return fp.read()
+        # 在 Streamlit 同步環境中執行非同步函數
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        audio_data = loop.run_until_complete(_generate_async())
+        return audio_data
     except Exception as e:
         st.error(f"語音生成失敗: {e}")
         return None
 
-# 新增：強制 1.8 倍速播放器
+# ==========================================
+# 前端播放器控制
+# ==========================================
 def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
     """利用前端 HTML/JS 強制改變語音播放速度"""
     if not audio_bytes: return
