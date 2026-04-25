@@ -2,13 +2,18 @@
 # app.py
 # ==========================================
 import streamlit as st
+import streamlit.components.v1 as components
 import jarvis_config as cfg
 import jarvis_engine as engine
 from docx import Document
+from gtts import gTTS
 import os
+import io
+import re
+import base64
 
 # ==========================================
-# 儲存至 Word 的背景函數
+# 背景處理函數
 # ==========================================
 def save_memory_to_word(tags, memories, goals):
     try:
@@ -21,11 +26,39 @@ def save_memory_to_word(tags, memories, goals):
         doc.add_heading('目標庫存', level=1)
         doc.add_paragraph(goals if goals else "無")
         
-        # 每次都覆寫存在伺服器/本機的同一個檔案中
         file_path = "jarvis_memory_log.docx"
         doc.save(file_path)
     except Exception as e:
         print(f"Word 儲存失敗: {e}")
+
+def generate_audio_bytes(text):
+    """將文字轉換為語音並返回 Byte 數據"""
+    clean_text = re.sub(r'[*_#`~]', '', text)
+    if not clean_text.strip(): return None
+    try:
+        tts = gTTS(text=clean_text, lang='zh-tw')
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return fp.read()
+    except:
+        return None
+
+def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
+    """利用前端 HTML/JS 強制改變語音播放速度 (預設 1.8 倍)"""
+    if not audio_bytes: return
+    b64 = base64.b64encode(audio_bytes).decode()
+    auto_attr = "autoplay" if autoplay else ""
+    html_code = f"""
+        <audio id="jarvis_audio_{str(hash(audio_bytes))[-5:]}" controls {auto_attr} style="width: 100%; height: 40px;">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+        <script>
+            var audio = document.getElementById("jarvis_audio_{str(hash(audio_bytes))[-5:]}");
+            audio.playbackRate = {speed};
+        </script>
+    """
+    components.html(html_code, height=50)
 
 # ==========================================
 # 1. 頁面與狀態初始化
@@ -37,7 +70,6 @@ if "messages" not in st.session_state:
 if "available_models" not in st.session_state:
     st.session_state.available_models = []
 
-# 初始化記憶變數
 if "state_tags" not in st.session_state:
     st.session_state.state_tags = cfg.DEFAULT_24_TAGS
 if "state_memories" not in st.session_state:
@@ -64,18 +96,19 @@ with st.sidebar:
 
         if st.session_state.available_models:
             default_idx = 0
+            # 絕對綁定 3.1-pro 或 pro-preview
             for i, m in enumerate(st.session_state.available_models):
-                if "pro-preview" in m or "3.1-pro" in m:
+                if "3.1-pro" in m.lower() or "pro-preview" in m.lower():
                     default_idx = i
                     break
-                elif "1.5-pro" in m:
-                    default_idx = i
             
             selected_model = st.selectbox("🤖 選擇運算核心 (Model)", st.session_state.available_models, index=default_idx)
             st.info(f"當前模型：{selected_model}")
-        else:
-            st.error("未發現可用模型，請檢查金鑰。")
             
+    st.markdown("---")
+    st.subheader("🗣️ 語音設定")
+    playback_speed = st.slider("朗讀倍速", min_value=1.0, max_value=2.5, value=1.8, step=0.1)
+
     st.markdown("---")
     st.markdown("### 📦 模組說明速查")
     category = st.selectbox("選擇模組分類", list(cfg.MODULES_FOR_UI.keys()))
@@ -84,7 +117,6 @@ with st.sidebar:
             st.caption(mod_desc)
             
     st.markdown("---")
-    # 提供一個下載按鈕，讓你可以隨時把背景存好的檔案載下來看
     if os.path.exists("jarvis_memory_log.docx"):
         with open("jarvis_memory_log.docx", "rb") as file:
             st.download_button(
@@ -105,6 +137,8 @@ with col_chat:
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            if msg.get("audio_bytes"):
+                render_audio_player(msg["audio_bytes"], speed=playback_speed, autoplay=False)
 
     if user_input := st.chat_input("輸入指令，先生..."):
         if not api_key:
@@ -126,7 +160,6 @@ with col_chat:
                             full_memory = m.get("raw_text", m["content"])
                             history_for_api.append({"role": "model", "parts": [full_memory]})
                             
-                    # 攜帶上輪記憶注入給 get_forced_template
                     forced_input = cfg.get_forced_template(
                         user_input=user_input, 
                         tags=st.session_state.state_tags, 
@@ -143,7 +176,6 @@ with col_chat:
                         forced_template_text=forced_input
                     )
                     
-                    # 擷取並更新當輪記憶
                     d = result["parsed_dash"]
                     
                     if d.get("tags") and "未解析" not in d.get("tags"):
@@ -158,19 +190,22 @@ with col_chat:
                     if d.get("new_goal") and "未解析" not in d.get("new_goal"):
                         st.session_state.state_goals = d["new_goal"]
                         
-                    # 組合分數供下輪 Step 1 讀取
                     st.session_state.state_scores = f"友善度:{d.get('friendly', 'N/A')}, 信任度:{d.get('trust', 'N/A')}, SAI:{d.get('sai', 'N/A')}, 準確度:{d.get('accuracy', 'N/A')}"
                     
-                    # 呼叫背景存檔函數
                     save_memory_to_word(st.session_state.state_tags, st.session_state.state_memories, st.session_state.state_goals)
                     
                     st.markdown(result["output"])
+                    
+                    audio_b = generate_audio_bytes(result["output"])
+                    if audio_b:
+                        render_audio_player(audio_b, speed=playback_speed, autoplay=True)
                     
                     st.session_state.messages.append({
                         "role": "assistant",
                         "raw_text": result["raw_full_text"],     
                         "content": result["output"],
-                        "parsed_dash": result["parsed_dash"]
+                        "parsed_dash": result["parsed_dash"],
+                        "audio_bytes": audio_b
                     })
                     st.rerun() 
 
@@ -197,7 +232,6 @@ with col_dash:
         st.markdown("**1. 啟用模組 (激活)**")
         st.info(d.get("modules", "無"))
         
-        # 顯示 24 維度標籤與專屬記憶 (取代原版的短標籤)
         st.markdown("**2. 標籤與特質庫存**")
         with st.expander("24 維度標籤", expanded=False):
             st.code(st.session_state.state_tags)
@@ -237,7 +271,6 @@ with col_dash:
         st.markdown("**10. 決定次輪策略 (D)**")
         st.warning(d.get("next_strategy", "無"))
         
-        # 🔥 將 Raw Log 流放到最角落
         st.divider()
         st.caption("⚙️ 開發者底層監控")
         with st.expander("🔍 展開底層原始運算 Log (Raw Data)", expanded=False):
