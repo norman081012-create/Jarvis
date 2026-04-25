@@ -29,7 +29,7 @@ def save_memory_to_word(tags, memories, goals):
         file_path = "jarvis_memory_log.docx"
         doc.save(file_path)
     except Exception as e:
-        print(f"Word 儲存失敗: {e}")
+        pass
 
 def generate_audio_bytes(text):
     """將文字轉換為語音並返回 Byte 數據"""
@@ -96,7 +96,7 @@ with st.sidebar:
 
         if st.session_state.available_models:
             default_idx = 0
-            # 絕對綁定 3.1-pro 或 pro-preview
+            # 強制尋找 3.1-pro 或 pro-preview
             for i, m in enumerate(st.session_state.available_models):
                 if "3.1-pro" in m.lower() or "pro-preview" in m.lower():
                     default_idx = i
@@ -178,15 +178,18 @@ with col_chat:
                     
                     d = result["parsed_dash"]
                     
+                    # 覆寫 24 項標籤
                     if d.get("tags") and "未解析" not in d.get("tags"):
                         st.session_state.state_tags = d["tags"]
                         
+                    # 增量累積專屬記憶
                     new_mem = d.get("new_memory", "")
                     if new_mem and "未解析" not in new_mem and "無" not in new_mem:
                         clean_mem = new_mem.replace("[新增]", "").strip()
                         if clean_mem:
                             st.session_state.state_memories += f"\n- {clean_mem}"
                             
+                    # 更新目標
                     if d.get("new_goal") and "未解析" not in d.get("new_goal"):
                         st.session_state.state_goals = d["new_goal"]
                         
