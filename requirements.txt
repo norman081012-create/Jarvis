@@ -1,4 +1,3 @@
 streamlit
 google-generativeai
-gTTS
-python-docx
+edge-tts
