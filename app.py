@@ -1,11 +1,17 @@
+# ==========================================
+# app.py
+# Streamlit 介面與主循環
+# ==========================================
 import streamlit as st
-import streamlit.components.v1 as components # 新增：用於 1.8x 語速播放器
-import base64                                # 新增：用於 1.8x 語速播放器
-import jarvis_config as cfg
-import jarvis_engine as engine
+import streamlit.components.v1 as components
+import base64
 from gtts import gTTS
 import io
 import re
+
+# 匯入分離的模組
+import jarvis_prompt as jp
+import jarvis_engine as engine
 
 # ==========================================
 # 語音輔助函數 (TTS)
@@ -26,7 +32,6 @@ def generate_audio(text):
         st.error(f"語音生成失敗: {e}")
         return None
 
-# 新增：強制 1.8 倍速播放器
 def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
     """利用前端 HTML/JS 強制改變語音播放速度"""
     if not audio_bytes: return
@@ -58,7 +63,7 @@ if "available_models" not in st.session_state:
 # ==========================================
 with st.sidebar:
     st.title("⚙️ Jarvis 系統控制")
-    api_key = st.text_input("🔑 API 金鑰", value=cfg.DEFAULT_API_KEY, type="password")
+    api_key = st.text_input("🔑 API 金鑰", value=jp.DEFAULT_API_KEY, type="password")
     
     if api_key:
         if st.button("🔄 重新整理可用模型清單") or not st.session_state.available_models:
@@ -70,7 +75,6 @@ with st.sidebar:
 
         if st.session_state.available_models:
             default_idx = 0
-            # 需求 1：輸入 API 後鎖定 gemini 3.1 pro preview
             for i, m in enumerate(st.session_state.available_models):
                 if "gemini-3.1-pro-preview" in m.lower() or "3.1-pro" in m.lower():
                     default_idx = i
@@ -87,8 +91,8 @@ with st.sidebar:
             
     st.markdown("---")
     st.markdown("### 📦 模組說明速查")
-    category = st.selectbox("選擇模組分類", list(cfg.MODULES_FOR_UI.keys()))
-    for mod_name, mod_desc in cfg.MODULES_FOR_UI[category].items():
+    category = st.selectbox("選擇模組分類", list(jp.MODULES_FOR_UI.keys()))
+    for mod_name, mod_desc in jp.MODULES_FOR_UI[category].items():
         with st.expander(f"🔹 {mod_name}"):
             st.caption(mod_desc)
 
@@ -104,7 +108,6 @@ with col_chat:
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            # 需求 2：以 1.8 倍速渲染歷史語音 (不自動播放)
             if msg["role"] == "assistant" and msg.get("audio_bytes"):
                 render_audio_player(msg["audio_bytes"], speed=1.8, autoplay=False)
 
@@ -120,7 +123,6 @@ with col_chat:
         with st.chat_message("assistant"):
             with st.spinner(f'Jarvis ({selected_model}) 戰略推演中...'):
                 try:
-                    # 修復記憶斷層：強迫 AI 看見自己上一輪完整的 10 步驟推演
                     history_for_api = []
                     for m in st.session_state.messages[:-1]:
                         if m["role"] == "user":
@@ -129,19 +131,18 @@ with col_chat:
                             full_memory = m.get("raw_text", m["content"])
                             history_for_api.append({"role": "model", "parts": [full_memory]})
                             
-                    forced_input = cfg.get_forced_template(user_input)
+                    forced_input = jp.get_forced_template(user_input)
                     
                     result = engine.process_jarvis_turn(
                         api_key=api_key,
                         selected_model=selected_model,
-                        system_prompt=cfg.SYSTEM_PROMPT,
+                        system_prompt=jp.SYSTEM_PROMPT,
                         history_for_api=history_for_api,
                         forced_template_text=forced_input
                     )
                     
                     st.markdown(result["output"])
                     
-                    # 生成語音並以 1.8 倍速自動播放
                     audio_bytes = generate_audio(result["output"])
                     if audio_bytes:
                         render_audio_player(audio_bytes, speed=1.8, autoplay=True)
@@ -151,7 +152,7 @@ with col_chat:
                         "raw_text": result["raw_full_text"],     
                         "content": result["output"],
                         "parsed_dash": result["parsed_dash"],
-                        "audio_bytes": audio_bytes # 儲存音檔
+                        "audio_bytes": audio_bytes 
                     })
                     st.rerun() 
 
@@ -214,7 +215,6 @@ with col_dash:
         st.markdown("**10. 決定次輪策略 (D)**")
         st.warning(d.get("next_strategy", "無"))
         
-        # 🔥 將 Raw Log 流放到最角落
         st.divider()
         st.caption("⚙️ 開發者底層監控")
         with st.expander("🔍 展開底層原始運算 Log (Raw Data)", expanded=False):
