@@ -9,66 +9,81 @@ def fetch_available_models(api_key):
     models = []
     for m in genai.list_models():
         if 'generateContent' in m.supported_generation_methods:
-            models.append(m.name.replace("models/", ""))
+            clean_name = m.name.replace("models/", "")
+            models.append(clean_name)
     return models
 
 def extract_dashboard_data(internal_text):
-    if not internal_text: return {}
-    # 清除 Markdown 干擾
-    plain = internal_text.replace('**', '').replace('* ', '')
+    if not internal_text:
+        return {}
+        
+    plain_text = internal_text.replace('**', '').replace('* ', '')
     
-    def ext(pattern):
-        # 使用更強勢的正則，抓取兩個標籤或段落之間的所有內容
-        m = re.search(pattern, plain, re.DOTALL | re.IGNORECASE)
-        return m.group(1).strip() if m else "未解析到資料"
+    def extract(pattern):
+        match = re.search(pattern, plain_text, re.DOTALL | re.IGNORECASE)
+        return match.group(1).strip() if match else "未解析到資料"
 
-    # 鎖定絕對路徑抓取
+    # 完全保留原版的抓取邏輯，僅修改對應 Step 3 的標籤與記憶抓取
     data = {
-        "modules": ext(r"激活模組[：:]\s*(.*?)(?=\n\s*\[Step 3|\n\n|\Z)"),
-        "tags_inventory": ext(r"本輪結算庫存[：:]\s*(.*?)(?=新增使用者專屬記憶)"),
-        "user_memory_delta": ext(r"新增使用者專屬記憶[：:]\s*(.*?)(?=\n\s*\[Step 4)"),
+        "modules": extract(r"激活模組.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
         
-        "intent": ext(r"產生策略 A[：:]\s*(.*?)(?=\n\s*\[Step 5)"),
+        # 抓取 24 維度標籤與新增記憶
+        "tags": extract(r"24維度標籤.*?[:：]\s*(.*?)(?=\n.*新增使用者專屬記憶|\[Step 4\])"),
+        "new_memory": extract(r"新增使用者專屬記憶.*?[:：]\s*(.*?)(?=\n.*\[Step 4\]|\n\n)"),
         
-        "friendly": ext(r"友善度[：:]\s*(.*?)(?=\n)"),
-        "trust": ext(r"信任度[：:]\s*(.*?)(?=\n)"),
-        "sai": ext(r"SAI 社交優勢[：:]\s*(.*?)(?=\n)"),
-        "accuracy": ext(r"準確度[：:]\s*(.*?)(?=\n|\[Step)"),
-        
-        "sai_strategy": ext(r"SAI 修正策略[：:]\s*(.*?)(?=\n.*本輪設定)"),
-        "matrix": ext(r"本輪設定級數.*?[：:]\s*(.*?)(?=\n.*產生策略 B)"),
-        "strategy_b": ext(r"產生策略 B[：:]\s*(.*?)(?=\n\s*\[Step 7)"),
-        
-        "fusion": ext(r"融合決策[：:]\s*(.*?)(?=\n\s*\[Step 9)"),
-        
-        "goal_inventory": ext(r"目標庫存[：:]\s*(.*?)(?=\n.*決定次輪策略)"),
-        "next_strategy": ext(r"決定次輪策略[：:]\s*(.*?)(?=$|</|\Z)")
+        "intent": extract(r"產生策略.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
+        "friendly": extract(r"友善度.*?[:：]\s*(.*?)(?=\n)"),
+        "trust": extract(r"信任度.*?[:：]\s*(.*?)(?=\n)"),
+        "sai": extract(r"SAI 社交優勢.*?[:：]\s*(.*?)(?=\n)"),
+        "accuracy": extract(r"準確度.*?[:：]\s*(.*?)(?=\n)"),
+        "sai_strategy": extract(r"修正策略.*?[:：]\s*(.*?)(?=\n.*判讀理由)"),
+        "sai_reason": extract(r"\[Step 6\].*?判讀理由.*?[:：]\s*(.*?)(?=\n.*全知全能)"),
+        "matrix": extract(r"本輪設定級數.*?[:：]\s*(.*?)(?=\n)"),
+        "matrix_reason": extract(r"矩陣.*?判讀理由.*?[:：]\s*(.*?)(?=\n.*產生策略 B)"),
+        "strategy_b": extract(r"產生策略 B.*?[:：]\s*(.*?)(?=\n.*\[Step)"),
+        "fusion": extract(r"融合決策.*?[:：]\s*(.*?)(?=\n.*\[Step)"),
+        "new_goal": extract(r"新目標.*?[:：]\s*(.*?)(?=\n.*決定次輪)"),
+        "next_strategy": extract(r"決定次輪策略.*?[:：]\s*(.*?)(?=$|</)")
     }
     return data
 
 def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api, forced_template_text):
     genai.configure(api_key=api_key)
     model_inst = genai.GenerativeModel(model_name=selected_model, system_instruction=system_prompt)
+    
     chat = model_inst.start_chat(history=history_for_api)
     response = chat.send_message(forced_template_text)
     full_text = response.text
     
-    clean_text = re.sub(r"^```[a-z]*\n|\n```$", "", full_text, flags=re.MULTILINE)
+    clean_text = re.sub(r"^```[a-z]*\n", "", full_text)
+    clean_text = re.sub(r"\n```$", "", clean_text)
     
-    it_match = re.search(r"<jarvis_internal>(.*?)</jarvis_internal>", clean_text, re.DOTALL | re.IGNORECASE)
-    internal_text = it_match.group(1).strip() if it_match else ""
+    internal_text = ""
+    output_text = ""
     
-    out_match = re.search(r"<jarvis_output>(.*?)</jarvis_output>", clean_text, re.DOTALL | re.IGNORECASE)
-    if out_match:
-        output_text = out_match.group(1).strip()
-    else:
-        output_text = clean_text.replace(f"<jarvis_internal>{internal_text}</jarvis_internal>", "").strip()
+    it_match = re.search(r"<\**jarvis_internal\**.*?>\s*(.*?)\s*</\**jarvis_internal\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
+    ot_match = re.search(r"<\**jarvis_output\**.*?>\s*(.*?)\s*</\**jarvis_output\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
 
-    output_text = re.sub(r"</?jarvis_output>|</?jarvis_internal>", "", output_text, flags=re.IGNORECASE).strip()
+    if it_match:
+        internal_text = it_match.group(1).strip()
+    else:
+        fallback_match = re.search(r"(\[Step 1\].*?\[Step 10\].*?(?=\n\n|\Z|<))", clean_text, re.DOTALL | re.IGNORECASE)
+        if fallback_match:
+            internal_text = fallback_match.group(1).strip()
+            
+    if ot_match:
+        output_text = ot_match.group(1).strip()
+    else:
+        if internal_text:
+            output_text = clean_text.replace(internal_text, "").replace("<jarvis_internal>", "").replace("</jarvis_internal>", "").replace("<jarvis_output>", "").replace("</jarvis_output>", "").strip()
+        else:
+            output_text = clean_text
+
+    parsed_dash = extract_dashboard_data(internal_text)
 
     return {
         "internal": internal_text,
         "output": output_text,
         "raw_full_text": full_text,
-        "parsed_dash": extract_dashboard_data(internal_text)
+        "parsed_dash": parsed_dash
     }
