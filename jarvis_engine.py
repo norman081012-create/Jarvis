@@ -1,5 +1,6 @@
 # ==========================================
 # jarvis_engine.py
+# 核心邏輯、API 通訊與正則解析引擎
 # ==========================================
 import re
 import google.generativeai as genai
@@ -30,29 +31,21 @@ def extract_dashboard_data(internal_text):
         m = re.search(pattern, plain, flags=re.DOTALL | re.IGNORECASE)
         return m.group(1).strip() if m else "未解析到資料"
 
-    # 嚴格對齊您提供的原版骨架名稱
     data = {
         "modules": ext_line(r"激活模組[：:]\s*([^\n]*)"),
-        
         "tags": ext_multi(r"24維度標籤[：:]\s*(.*?)(?=\n.*?新增使用者專屬記憶|\[Step 4\]|\Z)"),
         "new_memory": ext_multi(r"新增使用者專屬記憶[：:]\s*(.*?)(?=\n.*?\[Step 4\]|\Z)"),
-        
         "intent": ext_line(r"產生策略[：:]\s*([^\n]*)"),
-        
         "friendly": ext_line(r"友善度 \(1~10\)[：:]\s*([^\n]*)"),
         "trust": ext_line(r"信任度 \(1~10\)[：:]\s*([^\n]*)"),
         "sai": ext_line(r"SAI 社交優勢 \(1~5\)[：:]\s*([^\n]*)"),
         "accuracy": ext_line(r"準確度 \(1~5\)[：:]\s*([^\n]*)"),
-        
         "sai_strategy": ext_line(r"修正策略 \(強制回歸均值 3\)[：:]\s*([^\n]*)"),
         "sai_reason": ext_line(r"修正策略.*?判讀理由[：:]\s*([^\n]*)"),
-        
         "matrix": ext_line(r"本輪設定級數[：:]\s*([^\n]*)"),
         "matrix_reason": ext_line(r"連動矩陣.*?判讀理由[：:]\s*([^\n]*)"),
-        
         "strategy_b": ext_line(r"產生策略 B[：:]\s*([^\n]*)"),
         "fusion": ext_line(r"融合決策[：:]\s*([^\n]*)"),
-        
         "new_goal": ext_line(r"新目標 \(D\) / 目標庫存[：:]\s*([^\n]*)"),
         "next_strategy": ext_line(r"決定次輪策略 \(D\)[：:]\s*([^\n]*)")
     }
