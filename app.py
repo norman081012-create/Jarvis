@@ -3,96 +3,50 @@ import streamlit.components.v1 as components
 import base64
 import io
 import re
-import asyncio
-import edge_tts
-import uuid
-import threading
+from gtts import gTTS
 
 # 您的自定義模組
 import jarvis_config as cfg
 import jarvis_engine as engine
 
 # ==========================================
-# 語音輔助函數 (TTS) - 隔離執行緒極限穩定版
+# 語音輔助函數 (TTS) - 恢復為原版 gTTS (女聲)
 # ==========================================
 def generate_audio(text):
-    """將文字轉換為語音，確保不被 Streamlit 掐死"""
+    """將文字轉換為語音並返回 Byte 數據 (gTTS 預設女聲)"""
     clean_text = re.sub(r'[*_#`~]', '', text)
     if not clean_text.strip():
         return None
         
-    voice = "zh-TW-YunJianNeural"
-    result_container = {"bytes": None, "error": None}
-
-    def _run_in_thread():
-        async def _generate_async():
-            communicate = edge_tts.Communicate(clean_text, voice)
-            audio_bytes = b""
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_bytes += chunk["data"]
-            return audio_bytes
-
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result_container["bytes"] = loop.run_until_complete(_generate_async())
-        except Exception as e:
-            result_container["error"] = str(e)
-        finally:
-            loop.close()
-
-    thread = threading.Thread(target=_run_in_thread)
-    thread.start()
-    thread.join() 
-
-    if result_container["error"]:
-        st.error(f"🚨 TTS 引擎錯誤: {result_container['error']}")
-        return None
-        
-    if not result_container["bytes"] or len(result_container["bytes"]) == 0:
-        st.warning("⚠️ TTS 引擎沒有回傳音訊資料。")
+    try:
+        tts = gTTS(text=clean_text, lang='zh-tw')
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return fp.read()
+    except Exception as e:
+        st.error(f"語音生成失敗: {e}")
         return None
 
-    return result_container["bytes"]
-
 # ==========================================
-# 前端播放器控制 - 強制寫死的大按鈕版
+# 前端播放器控制 - 恢復為原版 1.8 倍速播放器
 # ==========================================
-def render_audio_button(audio_bytes, speed=1.8):
-    """不再依賴瀏覽器預設播放器，直接畫一顆強制觸發的按鈕"""
-    if not audio_bytes:
-        st.error("❌ 無法渲染按鈕：沒有收到音訊資料。")
-        return
-        
+def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
+    """利用前端 HTML/JS 強制改變語音播放速度"""
+    if not audio_bytes: return
     b64 = base64.b64encode(audio_bytes).decode()
-    unique_id = uuid.uuid4().hex[:8] 
-    
-    # 寫死一顆 HTML 按鈕，透過 JS 強制設定語速並播放
+    auto_attr = "autoplay" if autoplay else ""
     html_code = f"""
-        <audio id="jarvis_audio_{unique_id}" src="data:audio/mp3;base64,{b64}"></audio>
-        <button 
-            onclick="var audio = document.getElementById('jarvis_audio_{unique_id}'); audio.playbackRate = {speed}; audio.play();"
-            style="
-                background-color: #FF4B4B; 
-                color: white; 
-                border: none; 
-                padding: 10px 24px; 
-                text-align: center; 
-                display: block; 
-                font-size: 16px; 
-                margin-top: 10px; 
-                cursor: pointer; 
-                border-radius: 8px;
-                width: 100%;
-                font-weight: bold;
-                box-shadow: 0px 4px 6px rgba(0,0,0,0.1);
-            ">
-            🔊 點擊播放 Jarvis 語音 ({speed}x)
-        </button>
+        <audio id="jarvis_audio_{str(hash(audio_bytes))[-5:]}" controls {auto_attr} style="width: 100%; height: 40px;">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+        <script>
+            var audio = document.getElementById("jarvis_audio_{str(hash(audio_bytes))[-5:]}");
+            audio.playbackRate = {speed};
+        </script>
     """
-    # 高度給足 70，絕對不會被截斷
-    components.html(html_code, height=70)
+    # 微微調高 component 高度至 65，避免不同瀏覽器的控制條被截斷
+    components.html(html_code, height=65)
 
 # ==========================================
 # 1. 頁面與狀態初始化
@@ -155,8 +109,9 @@ with col_chat:
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            # 需求 2：以 1.8 倍速渲染歷史語音 (不自動播放)
             if msg["role"] == "assistant" and msg.get("audio_bytes"):
-                render_audio_button(msg["audio_bytes"], speed=1.8)
+                render_audio_player(msg["audio_bytes"], speed=1.8, autoplay=False)
 
     if user_input := st.chat_input("輸入指令，先生..."):
         if not api_key:
@@ -191,10 +146,10 @@ with col_chat:
                     
                     st.markdown(result["output"])
                     
-                    # 生成語音並渲染紅色大按鈕
+                    # 生成語音並以 1.8 倍速自動播放
                     audio_bytes = generate_audio(result["output"])
                     if audio_bytes:
-                        render_audio_button(audio_bytes, speed=1.8)
+                        render_audio_player(audio_bytes, speed=1.8, autoplay=True)
                     
                     st.session_state.messages.append({
                         "role": "assistant",
