@@ -1,3 +1,6 @@
+# ==========================================
+# jarvis_engine.py
+# ==========================================
 import re
 import google.generativeai as genai
 
@@ -11,31 +14,47 @@ def fetch_available_models(api_key):
     return models
 
 def extract_dashboard_data(internal_text):
-    if not internal_text:
-        return {}
-        
-    plain_text = internal_text.replace('**', '').replace('* ', '')
+    if not internal_text: return {}
     
-    def extract(pattern):
-        match = re.search(pattern, plain_text, re.DOTALL | re.IGNORECASE)
-        return match.group(1).strip() if match else "未解析到資料"
+    # 移除星號，讓正則比對不受 Markdown 粗體干擾
+    plain = internal_text.replace('**', '').replace('* ', '')
 
+    # 單行擷取：絕不跨行，保證分數不會抓到別的段落
+    def ext_line(pattern):
+        # 加上 DOTALL 讓 .*? 允許尋找錨點，但 ([^\n]*) 保證最終只抓單行結果
+        m = re.search(pattern, plain, flags=re.DOTALL | re.IGNORECASE)
+        return m.group(1).strip() if m else "未解析到資料"
+
+    # 跨段落擷取：專門用來抓清單
+    def ext_multi(pattern):
+        m = re.search(pattern, plain, flags=re.DOTALL | re.IGNORECASE)
+        return m.group(1).strip() if m else "未解析到資料"
+
+    # 嚴格對齊您提供的原版骨架名稱
     data = {
-        "modules": extract(r"激活模組.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
-        "tags": extract(r"更新標籤.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
-        "intent": extract(r"產生策略.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
-        "friendly": extract(r"友善度.*?[:：]\s*(.*?)(?=\n)"),
-        "trust": extract(r"信任度.*?[:：]\s*(.*?)(?=\n)"),
-        "sai": extract(r"SAI 社交優勢.*?[:：]\s*(.*?)(?=\n)"),
-        "accuracy": extract(r"準確度.*?[:：]\s*(.*?)(?=\n)"),
-        "sai_strategy": extract(r"修正策略.*?[:：]\s*(.*?)(?=\n.*判讀理由)"),
-        "sai_reason": extract(r"\[Step 6\].*?判讀理由.*?[:：]\s*(.*?)(?=\n.*全知全能)"),
-        "matrix": extract(r"本輪設定級數.*?[:：]\s*(.*?)(?=\n)"),
-        "matrix_reason": extract(r"矩陣.*?判讀理由.*?[:：]\s*(.*?)(?=\n.*產生策略 B)"),
-        "strategy_b": extract(r"產生策略 B.*?[:：]\s*(.*?)(?=\n.*\[Step)"),
-        "fusion": extract(r"融合決策.*?[:：]\s*(.*?)(?=\n.*\[Step)"),
-        "new_goal": extract(r"新目標.*?[:：]\s*(.*?)(?=\n.*決定次輪)"),
-        "next_strategy": extract(r"決定次輪策略.*?[:：]\s*(.*?)(?=$|</)")
+        "modules": ext_line(r"激活模組[：:]\s*([^\n]*)"),
+        
+        "tags": ext_multi(r"24維度標籤[：:]\s*(.*?)(?=\n.*?新增使用者專屬記憶|\[Step 4\]|\Z)"),
+        "new_memory": ext_multi(r"新增使用者專屬記憶[：:]\s*(.*?)(?=\n.*?\[Step 4\]|\Z)"),
+        
+        "intent": ext_line(r"產生策略[：:]\s*([^\n]*)"),
+        
+        "friendly": ext_line(r"友善度 \(1~10\)[：:]\s*([^\n]*)"),
+        "trust": ext_line(r"信任度 \(1~10\)[：:]\s*([^\n]*)"),
+        "sai": ext_line(r"SAI 社交優勢 \(1~5\)[：:]\s*([^\n]*)"),
+        "accuracy": ext_line(r"準確度 \(1~5\)[：:]\s*([^\n]*)"),
+        
+        "sai_strategy": ext_line(r"修正策略 \(強制回歸均值 3\)[：:]\s*([^\n]*)"),
+        "sai_reason": ext_line(r"修正策略.*?判讀理由[：:]\s*([^\n]*)"),
+        
+        "matrix": ext_line(r"本輪設定級數[：:]\s*([^\n]*)"),
+        "matrix_reason": ext_line(r"連動矩陣.*?判讀理由[：:]\s*([^\n]*)"),
+        
+        "strategy_b": ext_line(r"產生策略 B[：:]\s*([^\n]*)"),
+        "fusion": ext_line(r"融合決策[：:]\s*([^\n]*)"),
+        
+        "new_goal": ext_line(r"新目標 \(D\) / 目標庫存[：:]\s*([^\n]*)"),
+        "next_strategy": ext_line(r"決定次輪策略 \(D\)[：:]\s*([^\n]*)")
     }
     return data
 
@@ -47,34 +66,38 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
     response = chat.send_message(forced_template_text)
     full_text = response.text
     
-    # 清理 markdown 區塊符號
-    clean_text = re.sub(r"^```[a-z]*\n", "", full_text)
-    clean_text = re.sub(r"\n```$", "", clean_text)
+    # 清理最外層可能夾帶的 markdown 區塊符號
+    clean_text = re.sub(r"^```[a-z]*\n", "", full_text, flags=re.MULTILINE)
+    clean_text = re.sub(r"\n```$", "", clean_text, flags=re.MULTILINE)
     
     internal_text = ""
     output_text = ""
     
-    # 嘗試抓取標準標籤
-    it_match = re.search(r"<\**jarvis_internal\**.*?>\s*(.*?)\s*</\**jarvis_internal\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
-    ot_match = re.search(r"<\**jarvis_output\**.*?>\s*(.*?)\s*</\**jarvis_output\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
-
-    if it_match:
-        internal_text = it_match.group(1).strip()
+    # ==========================================
+    # 🔪 終極暴力切割法：直接用錨點切斷字串
+    # ==========================================
+    # 1. 尋找 <jarvis_output> 作為分水嶺
+    out_match = re.search(r"<jarvis_output>(.*)", clean_text, flags=re.DOTALL | re.IGNORECASE)
+    
+    if out_match:
+        output_text = out_match.group(1)
+        internal_text = clean_text[:out_match.start()]
     else:
-        # 🔥 終極防呆：就算沒有標籤，只要看到 [Step 1] 到 [Step 10] 就強制挖出來
-        fallback_match = re.search(r"(\[Step 1\].*?\[Step 10\].*?(?=\n\n|\Z|<))", clean_text, re.DOTALL | re.IGNORECASE)
-        if fallback_match:
-            internal_text = fallback_match.group(1).strip()
-            
-    if ot_match:
-        output_text = ot_match.group(1).strip()
-    else:
-        # 拔除推演過程，剩下的就是純對話
-        if internal_text:
-            output_text = clean_text.replace(internal_text, "").replace("<jarvis_internal>", "").replace("</jarvis_internal>", "").replace("<jarvis_output>", "").replace("</jarvis_output>", "").strip()
+        # 2. 如果連 <jarvis_output> 都忘了寫，尋找 </jarvis_internal> 切割
+        int_close_match = re.search(r"</jarvis_internal>(.*)", clean_text, flags=re.DOTALL | re.IGNORECASE)
+        if int_close_match:
+            output_text = int_close_match.group(1)
+            internal_text = clean_text[:int_close_match.start()]
         else:
+            # 3. 雙重失敗，整包丟給輸出
             output_text = clean_text
+            internal_text = ""
 
+    # 拔除內文殘留的系統標籤，確保畫面乾淨
+    output_text = re.sub(r"</?jarvis_output>", "", output_text, flags=re.IGNORECASE).strip()
+    internal_text = re.sub(r"</?jarvis_internal>", "", internal_text, flags=re.IGNORECASE).strip()
+
+    # 進行資料擷取
     parsed_dash = extract_dashboard_data(internal_text)
 
     return {
