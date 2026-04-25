@@ -1,81 +1,47 @@
 import streamlit as st
-import streamlit.components.v1 as components
-import base64
-import io
-import re
-import asyncio
-import edge_tts
-import uuid
-
-# 您的自定義模組
+import streamlit.components.v1 as components # 新增：用於 1.8x 語速播放器
+import base64                                # 新增：用於 1.8x 語速播放器
 import jarvis_config as cfg
 import jarvis_engine as engine
+from gtts import gTTS
+import io
+import re
 
 # ==========================================
-# 語音輔助函數 (TTS) - 強制診斷版
+# 語音輔助函數 (TTS)
 # ==========================================
 def generate_audio(text):
-    """將文字轉換為語音，帶有強力錯誤捕捉"""
+    """將文字轉換為語音並返回 Byte 數據"""
     clean_text = re.sub(r'[*_#`~]', '', text)
     if not clean_text.strip():
         return None
         
-    voice = "zh-TW-YunJianNeural"
-
-    async def _gen():
-        communicate = edge_tts.Communicate(clean_text, voice)
-        audio_data = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_data += chunk["data"]
-        return audio_data
-
     try:
-        # 直接使用 asyncio.run 強制執行
-        result_bytes = asyncio.run(_gen())
-        
-        if not result_bytes or len(result_bytes) == 0:
-            st.warning("⚠️ 語音系統運作完畢，但微軟伺服器未回傳有效資料。")
-            return None
-            
-        return result_bytes
-        
+        tts = gTTS(text=clean_text, lang='zh-tw')
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return fp.read()
     except Exception as e:
-        # 這裡會捕捉到所有的連線問題或套件衝突
-        st.error(f"🚨 TTS 語音生成失敗 (請檢查網路或防火牆): {e}")
+        st.error(f"語音生成失敗: {e}")
         return None
 
-# ==========================================
-# 前端播放器控制 - 雙軌對照版
-# ==========================================
+# 新增：強制 1.8 倍速播放器
 def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
-    """顯示原生播放器與 1.8x 自訂播放器，確認前端是否正常"""
-    if not audio_bytes:
-        st.error("❌ Debug: 接收到的音訊為空，無法渲染播放器。")
-        return
-        
-    # 1. 先用 Streamlit 原生播放器證明音檔真的存在
-    st.caption(f"🔧 Debug: 成功生成音檔，大小 {len(audio_bytes)} bytes")
-    st.audio(audio_bytes, format="audio/mp3") 
-    
-    # 2. 再渲染您專屬的 1.8x 加速播放器
+    """利用前端 HTML/JS 強制改變語音播放速度"""
+    if not audio_bytes: return
     b64 = base64.b64encode(audio_bytes).decode()
     auto_attr = "autoplay" if autoplay else ""
-    unique_id = uuid.uuid4().hex[:8]  # 確保 ID 絕對不重複
-    
     html_code = f"""
-        <div style="padding-top: 5px; border-top: 1px dashed #ccc;">
-            <span style="font-size: 12px; color: #888;">1.8x 加速播放器：</span>
-            <audio id="jarvis_audio_{unique_id}" controls {auto_attr} style="width: 100%; height: 40px;">
-                <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-            </audio>
-        </div>
+        <audio id="jarvis_audio_{str(hash(audio_bytes))[-5:]}" controls {auto_attr} style="width: 100%; height: 40px;">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
         <script>
-            var audio = document.getElementById("jarvis_audio_{unique_id}");
+            var audio = document.getElementById("jarvis_audio_{str(hash(audio_bytes))[-5:]}");
             audio.playbackRate = {speed};
         </script>
     """
-    components.html(html_code, height=80)
+    components.html(html_code, height=50)
 
 # ==========================================
 # 1. 頁面與狀態初始化
