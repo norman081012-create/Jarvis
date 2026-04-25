@@ -1,3 +1,6 @@
+# ==========================================
+# jarvis_engine.py
+# ==========================================
 import re
 import google.generativeai as genai
 
@@ -21,8 +24,13 @@ def extract_dashboard_data(internal_text):
         return match.group(1).strip() if match else "未解析到資料"
 
     data = {
+        # 🟢 記憶體抓取
+        "tags_inventory": extract(r"本輪結算庫存.*?[:：]\s*(.*?)(?=新增使用者專屬|\[Step 4\]|\Z)"),
+        "user_memory": extract(r"新增使用者專屬記憶.*?[:：]\s*(.*?)(?=\[Step 4\]|\n\n|\Z)"),
+        "goal_inventory": extract(r"新目標 \(D\) / 目標庫存.*?[:：]\s*(.*?)(?=決定次輪策略|\n\n|\Z)"),
+        
+        # 原有分析面板
         "modules": extract(r"激活模組.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
-        "tags": extract(r"更新標籤.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n|當前庫存讀取)"), # 相容舊版與新版 CRUD
         "intent": extract(r"產生策略.*?[:：]\s*(.*?)(?=\n.*\[Step|\n\n)"),
         "friendly": extract(r"友善度.*?[:：]\s*(.*?)(?=\n)"),
         "trust": extract(r"信任度.*?[:：]\s*(.*?)(?=\n)"),
@@ -34,7 +42,6 @@ def extract_dashboard_data(internal_text):
         "matrix_reason": extract(r"矩陣.*?判讀理由.*?[:：]\s*(.*?)(?=\n.*產生策略 B)"),
         "strategy_b": extract(r"產生策略 B.*?[:：]\s*(.*?)(?=\n.*\[Step)"),
         "fusion": extract(r"融合決策.*?[:：]\s*(.*?)(?=\n.*\[Step)"),
-        "new_goal": extract(r"新目標.*?[:：]\s*(.*?)(?=\n.*決定次輪)"),
         "next_strategy": extract(r"決定次輪策略.*?[:：]\s*(.*?)(?=$|</)")
     }
     return data
@@ -65,20 +72,17 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
             internal_text = fallback_match.group(1).strip()
 
     # 2. 強制暴力切斷：只取給使用者的純淨輸出
-    # 尋找 <jarvis_output> 作為起點，抓取後面的所有內容
     out_match = re.search(r"<\**jarvis_output\**.*?>(.*)", clean_text, re.DOTALL | re.IGNORECASE)
     if out_match:
         output_text = out_match.group(1)
     else:
-        # 如果 AI 忘記寫 <jarvis_output>，那就找 </jarvis_internal> 後面的所有東西
         internal_end_match = re.search(r"</\**jarvis_internal\**.*?>(.*)", clean_text, re.DOTALL | re.IGNORECASE)
         if internal_end_match:
             output_text = internal_end_match.group(1)
         else:
-            # 終極防呆：把 internal_text 挖掉，剩下的當作 output
             output_text = clean_text.replace(internal_text, "")
 
-    # 3. 終極清洗：拔除任何可能殘留的系統標籤與空白
+    # 3. 終極清洗
     output_text = re.sub(r"</?\**jarvis_output\**.*?>", "", output_text, flags=re.IGNORECASE)
     output_text = re.sub(r"</?\**jarvis_internal\**.*?>", "", output_text, flags=re.IGNORECASE)
     output_text = output_text.strip()
