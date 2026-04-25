@@ -54,26 +54,34 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
     internal_text = ""
     output_text = ""
     
-    # 嘗試抓取標準標籤
+    # 1. 萃取 internal_text (用於 Dashboard)
     it_match = re.search(r"<\**jarvis_internal\**.*?>\s*(.*?)\s*</\**jarvis_internal\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
-    ot_match = re.search(r"<\**jarvis_output\**.*?>\s*(.*?)\s*</\**jarvis_output\**.*?>", clean_text, re.DOTALL | re.IGNORECASE)
-
     if it_match:
         internal_text = it_match.group(1).strip()
     else:
-        # 🔥 終極防呆：就算沒有標籤，只要看到 [Step 1] 到 [Step 10] 就強制挖出來
+        # 防呆：就算沒有標籤，只要看到 [Step 1] 到 [Step 10] 就強制挖出來
         fallback_match = re.search(r"(\[Step 1\].*?\[Step 10\].*?(?=\n\n|\Z|<))", clean_text, re.DOTALL | re.IGNORECASE)
         if fallback_match:
             internal_text = fallback_match.group(1).strip()
-            
-    if ot_match:
-        output_text = ot_match.group(1).strip()
+
+    # 2. 強制暴力切斷：只取給使用者的純淨輸出
+    # 尋找 <jarvis_output> 作為起點，抓取後面的所有內容
+    out_match = re.search(r"<\**jarvis_output\**.*?>(.*)", clean_text, re.DOTALL | re.IGNORECASE)
+    if out_match:
+        output_text = out_match.group(1)
     else:
-        # 拔除推演過程，剩下的就是純對話
-        if internal_text:
-            output_text = clean_text.replace(internal_text, "").replace("<jarvis_internal>", "").replace("</jarvis_internal>", "").replace("<jarvis_output>", "").replace("</jarvis_output>", "").strip()
+        # 如果 AI 忘記寫 <jarvis_output>，那就找 </jarvis_internal> 後面的所有東西
+        internal_end_match = re.search(r"</\**jarvis_internal\**.*?>(.*)", clean_text, re.DOTALL | re.IGNORECASE)
+        if internal_end_match:
+            output_text = internal_end_match.group(1)
         else:
-            output_text = clean_text
+            # 終極防呆：把 internal_text 挖掉，剩下的當作 output
+            output_text = clean_text.replace(internal_text, "")
+
+    # 3. 終極清洗：拔除任何可能殘留的系統標籤與空白
+    output_text = re.sub(r"</?\**jarvis_output\**.*?>", "", output_text, flags=re.IGNORECASE)
+    output_text = re.sub(r"</?\**jarvis_internal\**.*?>", "", output_text, flags=re.IGNORECASE)
+    output_text = output_text.strip()
 
     parsed_dash = extract_dashboard_data(internal_text)
 
