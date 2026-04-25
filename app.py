@@ -4,82 +4,78 @@ import base64
 import io
 import re
 import asyncio
-import threading
 import edge_tts
+import uuid
 
 # 您的自定義模組
 import jarvis_config as cfg
 import jarvis_engine as engine
 
 # ==========================================
-# 語音輔助函數 (TTS) - 隔離執行緒強化版 (Edge-TTS 男聲)
+# 語音輔助函數 (TTS) - 強制診斷版
 # ==========================================
 def generate_audio(text):
-    """將文字轉換為語音，透過獨立執行緒避免 Streamlit 掐死非同步迴圈"""
+    """將文字轉換為語音，帶有強力錯誤捕捉"""
     clean_text = re.sub(r'[*_#`~]', '', text)
     if not clean_text.strip():
         return None
         
-    # 指定微軟的台灣男聲：雲健
     voice = "zh-TW-YunJianNeural"
-    
-    # 建立一個容器，用來把獨立執行緒裡面的結果抓出來
-    result_container = {"bytes": None, "error": None}
 
-    def _run_in_thread():
-        async def _generate_async():
-            communicate = edge_tts.Communicate(clean_text, voice)
-            audio_bytes = b""
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_bytes += chunk["data"]
-            return audio_bytes
+    async def _gen():
+        communicate = edge_tts.Communicate(clean_text, voice)
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+        return audio_data
 
-        try:
-            # 建立全新的乾淨事件迴圈，完全不干涉 Streamlit 主進程
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result_container["bytes"] = loop.run_until_complete(_generate_async())
-        except Exception as e:
-            result_container["error"] = str(e)
-        finally:
-            loop.close()
-
-    # 啟動並等待獨立執行緒完成
-    thread = threading.Thread(target=_run_in_thread)
-    thread.start()
-    thread.join() 
-
-    # 錯誤攔截與回報
-    if result_container["error"]:
-        st.error(f"語音生成器引發異常: {result_container['error']}")
-        return None
+    try:
+        # 直接使用 asyncio.run 強制執行
+        result_bytes = asyncio.run(_gen())
         
-    if not result_container["bytes"] or len(result_container["bytes"]) == 0:
-        st.warning("語音生成器運作完畢，但未回傳有效的音訊位元組。")
+        if not result_bytes or len(result_bytes) == 0:
+            st.warning("⚠️ 語音系統運作完畢，但微軟伺服器未回傳有效資料。")
+            return None
+            
+        return result_bytes
+        
+    except Exception as e:
+        # 這裡會捕捉到所有的連線問題或套件衝突
+        st.error(f"🚨 TTS 語音生成失敗 (請檢查網路或防火牆): {e}")
         return None
-
-    return result_container["bytes"]
 
 # ==========================================
-# 前端播放器控制
+# 前端播放器控制 - 雙軌對照版
 # ==========================================
 def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
-    """利用前端 HTML/JS 強制改變語音播放速度"""
-    if not audio_bytes: return
+    """顯示原生播放器與 1.8x 自訂播放器，確認前端是否正常"""
+    if not audio_bytes:
+        st.error("❌ Debug: 接收到的音訊為空，無法渲染播放器。")
+        return
+        
+    # 1. 先用 Streamlit 原生播放器證明音檔真的存在
+    st.caption(f"🔧 Debug: 成功生成音檔，大小 {len(audio_bytes)} bytes")
+    st.audio(audio_bytes, format="audio/mp3") 
+    
+    # 2. 再渲染您專屬的 1.8x 加速播放器
     b64 = base64.b64encode(audio_bytes).decode()
     auto_attr = "autoplay" if autoplay else ""
+    unique_id = uuid.uuid4().hex[:8]  # 確保 ID 絕對不重複
+    
     html_code = f"""
-        <audio id="jarvis_audio_{str(hash(audio_bytes))[-5:]}" controls {auto_attr} style="width: 100%; height: 40px;">
-            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-        </audio>
+        <div style="padding-top: 5px; border-top: 1px dashed #ccc;">
+            <span style="font-size: 12px; color: #888;">1.8x 加速播放器：</span>
+            <audio id="jarvis_audio_{unique_id}" controls {auto_attr} style="width: 100%; height: 40px;">
+                <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+            </audio>
+        </div>
         <script>
-            var audio = document.getElementById("jarvis_audio_{str(hash(audio_bytes))[-5:]}");
+            var audio = document.getElementById("jarvis_audio_{unique_id}");
             audio.playbackRate = {speed};
         </script>
     """
-    # 高度改為 65，避免控制條被瀏覽器截斷
-    components.html(html_code, height=65)
+    components.html(html_code, height=80)
 
 # ==========================================
 # 1. 頁面與狀態初始化
