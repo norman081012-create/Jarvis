@@ -1,64 +1,7 @@
-# ==========================================
 # app.py
-# ==========================================
 import streamlit as st
-import streamlit.components.v1 as components
 import jarvis_config as cfg
 import jarvis_engine as engine
-from docx import Document
-from gtts import gTTS
-import os
-import io
-import re
-import base64
-
-# ==========================================
-# 背景處理函數
-# ==========================================
-def save_memory_to_word(tags, memories, goals):
-    try:
-        doc = Document()
-        doc.add_heading('Jarvis Memory Log', 0)
-        doc.add_heading('24 維度標籤', level=1)
-        doc.add_paragraph(tags if tags else "無")
-        doc.add_heading('專屬記憶', level=1)
-        doc.add_paragraph(memories if memories else "無")
-        doc.add_heading('目標庫存', level=1)
-        doc.add_paragraph(goals if goals else "無")
-        
-        file_path = "jarvis_memory_log.docx"
-        doc.save(file_path)
-    except Exception as e:
-        pass
-
-def generate_audio_bytes(text):
-    """將文字轉換為語音並返回 Byte 數據"""
-    clean_text = re.sub(r'[*_#`~]', '', text)
-    if not clean_text.strip(): return None
-    try:
-        tts = gTTS(text=clean_text, lang='zh-tw')
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        fp.seek(0)
-        return fp.read()
-    except:
-        return None
-
-def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
-    """利用前端 HTML/JS 強制改變語音播放速度 (預設 1.8 倍)"""
-    if not audio_bytes: return
-    b64 = base64.b64encode(audio_bytes).decode()
-    auto_attr = "autoplay" if autoplay else ""
-    html_code = f"""
-        <audio id="jarvis_audio_{str(hash(audio_bytes))[-5:]}" controls {auto_attr} style="width: 100%; height: 40px;">
-            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-        </audio>
-        <script>
-            var audio = document.getElementById("jarvis_audio_{str(hash(audio_bytes))[-5:]}");
-            audio.playbackRate = {speed};
-        </script>
-    """
-    components.html(html_code, height=50)
 
 # ==========================================
 # 1. 頁面與狀態初始化
@@ -69,15 +12,6 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "available_models" not in st.session_state:
     st.session_state.available_models = []
-
-if "state_tags" not in st.session_state:
-    st.session_state.state_tags = cfg.DEFAULT_24_TAGS
-if "state_memories" not in st.session_state:
-    st.session_state.state_memories = ""
-if "state_goals" not in st.session_state:
-    st.session_state.state_goals = ""
-if "state_scores" not in st.session_state:
-    st.session_state.state_scores = ""
 
 # ==========================================
 # 2. 側邊欄：API 與模型鎖定
@@ -96,35 +30,24 @@ with st.sidebar:
 
         if st.session_state.available_models:
             default_idx = 0
-            # 強制尋找 3.1-pro 或 pro-preview
             for i, m in enumerate(st.session_state.available_models):
-                if "3.1-pro" in m.lower() or "pro-preview" in m.lower():
+                if "pro-preview" in m or "3.1-pro" in m:
                     default_idx = i
                     break
+                elif "1.5-pro" in m:
+                    default_idx = i
             
             selected_model = st.selectbox("🤖 選擇運算核心 (Model)", st.session_state.available_models, index=default_idx)
             st.info(f"當前模型：{selected_model}")
+        else:
+            st.error("未發現可用模型，請檢查金鑰。")
             
-    st.markdown("---")
-    st.subheader("🗣️ 語音設定")
-    playback_speed = st.slider("朗讀倍速", min_value=1.0, max_value=2.5, value=1.8, step=0.1)
-
     st.markdown("---")
     st.markdown("### 📦 模組說明速查")
     category = st.selectbox("選擇模組分類", list(cfg.MODULES_FOR_UI.keys()))
     for mod_name, mod_desc in cfg.MODULES_FOR_UI[category].items():
         with st.expander(f"🔹 {mod_name}"):
             st.caption(mod_desc)
-            
-    st.markdown("---")
-    if os.path.exists("jarvis_memory_log.docx"):
-        with open("jarvis_memory_log.docx", "rb") as file:
-            st.download_button(
-                label="💾 下載最新 Memory Word 檔",
-                data=file,
-                file_name="jarvis_memory_log.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
 
 # ==========================================
 # 3. 雙欄式主畫面：左側對話區 / 右側即時分析板
@@ -134,11 +57,10 @@ col_chat, col_dash = st.columns([7, 3], gap="large")
 with col_chat:
     st.title("Jarvis 終端控制台")
     
+    # 渲染歷史對話 (100% 乾淨，不再有任何除錯面板)
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            if msg.get("audio_bytes"):
-                render_audio_player(msg["audio_bytes"], speed=playback_speed, autoplay=False)
 
     if user_input := st.chat_input("輸入指令，先生..."):
         if not api_key:
@@ -152,21 +74,17 @@ with col_chat:
         with st.chat_message("assistant"):
             with st.spinner(f'Jarvis ({selected_model}) 戰略推演中...'):
                 try:
+                    # 修復記憶斷層：強迫 AI 看見自己上一輪完整的 10 步驟推演
                     history_for_api = []
                     for m in st.session_state.messages[:-1]:
                         if m["role"] == "user":
                             history_for_api.append({"role": "user", "parts": [m["content"]]})
                         else:
+                            # 把包含 Step 1~10 的 raw_text 塞回去當作它的記憶
                             full_memory = m.get("raw_text", m["content"])
                             history_for_api.append({"role": "model", "parts": [full_memory]})
                             
-                    forced_input = cfg.get_forced_template(
-                        user_input=user_input, 
-                        tags=st.session_state.state_tags, 
-                        memories=st.session_state.state_memories, 
-                        goals=st.session_state.state_goals, 
-                        scores=st.session_state.state_scores
-                    )
+                    forced_input = cfg.get_forced_template(user_input)
                     
                     result = engine.process_jarvis_turn(
                         api_key=api_key,
@@ -176,39 +94,13 @@ with col_chat:
                         forced_template_text=forced_input
                     )
                     
-                    d = result["parsed_dash"]
-                    
-                    # 覆寫 24 項標籤
-                    if d.get("tags") and "未解析" not in d.get("tags"):
-                        st.session_state.state_tags = d["tags"]
-                        
-                    # 增量累積專屬記憶
-                    new_mem = d.get("new_memory", "")
-                    if new_mem and "未解析" not in new_mem and "無" not in new_mem:
-                        clean_mem = new_mem.replace("[新增]", "").strip()
-                        if clean_mem:
-                            st.session_state.state_memories += f"\n- {clean_mem}"
-                            
-                    # 更新目標
-                    if d.get("new_goal") and "未解析" not in d.get("new_goal"):
-                        st.session_state.state_goals = d["new_goal"]
-                        
-                    st.session_state.state_scores = f"友善度:{d.get('friendly', 'N/A')}, 信任度:{d.get('trust', 'N/A')}, SAI:{d.get('sai', 'N/A')}, 準確度:{d.get('accuracy', 'N/A')}"
-                    
-                    save_memory_to_word(st.session_state.state_tags, st.session_state.state_memories, st.session_state.state_goals)
-                    
                     st.markdown(result["output"])
-                    
-                    audio_b = generate_audio_bytes(result["output"])
-                    if audio_b:
-                        render_audio_player(audio_b, speed=playback_speed, autoplay=True)
                     
                     st.session_state.messages.append({
                         "role": "assistant",
                         "raw_text": result["raw_full_text"],     
                         "content": result["output"],
-                        "parsed_dash": result["parsed_dash"],
-                        "audio_bytes": audio_b
+                        "parsed_dash": result["parsed_dash"]
                     })
                     st.rerun() 
 
@@ -235,11 +127,8 @@ with col_dash:
         st.markdown("**1. 啟用模組 (激活)**")
         st.info(d.get("modules", "無"))
         
-        st.markdown("**2. 標籤與特質庫存**")
-        with st.expander("24 維度標籤", expanded=False):
-            st.code(st.session_state.state_tags)
-        with st.expander("專屬記憶 (累積)", expanded=False):
-            st.write(st.session_state.state_memories if st.session_state.state_memories else "無")
+        st.markdown("**2. 使用者標籤**")
+        st.caption(d.get("tags", "無"))
         
         st.markdown("**3. 意圖判讀及應對策略 A**")
         st.write(d.get("intent", "無"))
@@ -274,6 +163,7 @@ with col_dash:
         st.markdown("**10. 決定次輪策略 (D)**")
         st.warning(d.get("next_strategy", "無"))
         
+        # 🔥 將 Raw Log 流放到最角落
         st.divider()
         st.caption("⚙️ 開發者底層監控")
         with st.expander("🔍 展開底層原始運算 Log (Raw Data)", expanded=False):
