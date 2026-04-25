@@ -4,41 +4,62 @@ import base64
 import io
 import re
 import asyncio
-import edge_tts  # 替換原有的 gTTS
+import threading
+import edge_tts
 
-# 假設您的專案結構中有這兩個檔案，若您是寫在同一個檔案，請自行對應
+# 您的自定義模組
 import jarvis_config as cfg
 import jarvis_engine as engine
 
 # ==========================================
-# 語音輔助函數 (TTS) - 已替換為 Edge-TTS 微軟男聲
+# 語音輔助函數 (TTS) - 隔離執行緒強化版 (Edge-TTS 男聲)
 # ==========================================
 def generate_audio(text):
-    """將文字轉換為語音並返回 Byte 數據"""
+    """將文字轉換為語音，透過獨立執行緒避免 Streamlit 掐死非同步迴圈"""
     clean_text = re.sub(r'[*_#`~]', '', text)
     if not clean_text.strip():
         return None
         
-    # 指定微軟的台灣男聲：雲健 (YunJian)
+    # 指定微軟的台灣男聲：雲健
     voice = "zh-TW-YunJianNeural"
+    
+    # 建立一個容器，用來把獨立執行緒裡面的結果抓出來
+    result_container = {"bytes": None, "error": None}
 
-    async def _generate_async():
-        communicate = edge_tts.Communicate(clean_text, voice)
-        audio_bytes = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_bytes += chunk["data"]
-        return audio_bytes
+    def _run_in_thread():
+        async def _generate_async():
+            communicate = edge_tts.Communicate(clean_text, voice)
+            audio_bytes = b""
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_bytes += chunk["data"]
+            return audio_bytes
 
-    try:
-        # 在 Streamlit 同步環境中執行非同步函數
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        audio_data = loop.run_until_complete(_generate_async())
-        return audio_data
-    except Exception as e:
-        st.error(f"語音生成失敗: {e}")
+        try:
+            # 建立全新的乾淨事件迴圈，完全不干涉 Streamlit 主進程
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result_container["bytes"] = loop.run_until_complete(_generate_async())
+        except Exception as e:
+            result_container["error"] = str(e)
+        finally:
+            loop.close()
+
+    # 啟動並等待獨立執行緒完成
+    thread = threading.Thread(target=_run_in_thread)
+    thread.start()
+    thread.join() 
+
+    # 錯誤攔截與回報
+    if result_container["error"]:
+        st.error(f"語音生成器引發異常: {result_container['error']}")
         return None
+        
+    if not result_container["bytes"] or len(result_container["bytes"]) == 0:
+        st.warning("語音生成器運作完畢，但未回傳有效的音訊位元組。")
+        return None
+
+    return result_container["bytes"]
 
 # ==========================================
 # 前端播放器控制
@@ -57,7 +78,8 @@ def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
             audio.playbackRate = {speed};
         </script>
     """
-    components.html(html_code, height=50)
+    # 高度改為 65，避免控制條被瀏覽器截斷
+    components.html(html_code, height=65)
 
 # ==========================================
 # 1. 頁面與狀態初始化
