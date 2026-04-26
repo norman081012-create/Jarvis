@@ -1,21 +1,18 @@
+# ==========================================
+# app.py
+# ==========================================
 import streamlit as st
-import streamlit.components.v1 as components # 新增：用於 1.8x 語速播放器
-import base64                                # 新增：用於 1.8x 語速播放器
+import streamlit.components.v1 as components 
+import base64                                
 import jarvis_config as cfg
 import jarvis_engine as engine
 from gtts import gTTS
 import io
 import re
 
-# ==========================================
-# 語音輔助函數 (TTS)
-# ==========================================
 def generate_audio(text):
-    """將文字轉換為語音並返回 Byte 數據"""
     clean_text = re.sub(r'[*_#`~]', '', text)
-    if not clean_text.strip():
-        return None
-        
+    if not clean_text.strip(): return None
     try:
         tts = gTTS(text=clean_text, lang='zh-tw')
         fp = io.BytesIO()
@@ -26,9 +23,7 @@ def generate_audio(text):
         st.error(f"語音生成失敗: {e}")
         return None
 
-# 新增：強制 1.8 倍速播放器
 def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
-    """利用前端 HTML/JS 強制改變語音播放速度"""
     if not audio_bytes: return
     b64 = base64.b64encode(audio_bytes).decode()
     auto_attr = "autoplay" if autoplay else ""
@@ -43,9 +38,6 @@ def render_audio_player(audio_bytes, speed=1.8, autoplay=False):
     """
     components.html(html_code, height=50)
 
-# ==========================================
-# 1. 頁面與狀態初始化
-# ==========================================
 st.set_page_config(page_title="Jarvis Command Center", layout="wide", initial_sidebar_state="expanded")
 
 if "messages" not in st.session_state:
@@ -53,9 +45,6 @@ if "messages" not in st.session_state:
 if "available_models" not in st.session_state:
     st.session_state.available_models = []
 
-# ==========================================
-# 2. 側邊欄：API 與模型鎖定
-# ==========================================
 with st.sidebar:
     st.title("⚙️ Jarvis 系統控制")
     api_key = st.text_input("🔑 API 金鑰", value=cfg.DEFAULT_API_KEY, type="password")
@@ -70,15 +59,11 @@ with st.sidebar:
 
         if st.session_state.available_models:
             default_idx = 0
-            # 需求 1：輸入 API 後鎖定 gemini 3.1 pro preview
             for i, m in enumerate(st.session_state.available_models):
                 if "gemini-3.1-pro-preview" in m.lower() or "3.1-pro" in m.lower():
-                    default_idx = i
-                    break
-                elif "pro-preview" in m.lower() and default_idx == 0:
-                    default_idx = i
-                elif "1.5-pro" in m.lower() and default_idx == 0:
-                    default_idx = i
+                    default_idx = i; break
+                elif "pro-preview" in m.lower() and default_idx == 0: default_idx = i
+                elif "1.5-pro" in m.lower() and default_idx == 0: default_idx = i
             
             selected_model = st.selectbox("🤖 選擇運算核心 (Model)", st.session_state.available_models, index=default_idx)
             st.info(f"當前模型：{selected_model}")
@@ -86,25 +71,26 @@ with st.sidebar:
             st.error("未發現可用模型，請檢查金鑰。")
             
     st.markdown("---")
+    # 🔥 新增：偏好目標選擇器
+    st.markdown("### 🎯 戰略引導目標")
+    preferred_goal = st.selectbox("偏好預設目標 (Idle 接管)", ["經濟收入", "提升知識", "陪伴", "健康", "圓導向"], index=0)
+    st.caption("AI 在您未明確指示時，將自動朝此目標收束。")
+
+    st.markdown("---")
     st.markdown("### 📦 模組說明速查")
     category = st.selectbox("選擇模組分類", list(cfg.MODULES_FOR_UI.keys()))
     for mod_name, mod_desc in cfg.MODULES_FOR_UI[category].items():
         with st.expander(f"🔹 {mod_name}"):
             st.caption(mod_desc)
 
-# ==========================================
-# 3. 雙欄式主畫面：左側對話區 / 右側即時分析板
-# ==========================================
 col_chat, col_dash = st.columns([7, 3], gap="large")
 
 with col_chat:
     st.title("Jarvis 終端控制台")
     
-    # 渲染歷史對話
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            # 需求 2：以 1.8 倍速渲染歷史語音 (不自動播放)
             if msg["role"] == "assistant" and msg.get("audio_bytes"):
                 render_audio_player(msg["audio_bytes"], speed=1.8, autoplay=False)
 
@@ -120,7 +106,6 @@ with col_chat:
         with st.chat_message("assistant"):
             with st.spinner(f'Jarvis ({selected_model}) 戰略推演中...'):
                 try:
-                    # 修復記憶斷層：強迫 AI 看見自己上一輪完整的 10 步驟推演
                     history_for_api = []
                     for m in st.session_state.messages[:-1]:
                         if m["role"] == "user":
@@ -131,17 +116,17 @@ with col_chat:
                             
                     forced_input = cfg.get_forced_template(user_input)
                     
+                    # 🔥 更新：動態傳入使用者選擇的偏好目標
                     result = engine.process_jarvis_turn(
                         api_key=api_key,
                         selected_model=selected_model,
-                        system_prompt=cfg.SYSTEM_PROMPT,
+                        system_prompt=cfg.get_system_prompt(preferred_goal), 
                         history_for_api=history_for_api,
                         forced_template_text=forced_input
                     )
                     
                     st.markdown(result["output"])
                     
-                    # 生成語音並以 1.8 倍速自動播放
                     audio_bytes = generate_audio(result["output"])
                     if audio_bytes:
                         render_audio_player(audio_bytes, speed=1.8, autoplay=True)
@@ -151,16 +136,13 @@ with col_chat:
                         "raw_text": result["raw_full_text"],     
                         "content": result["output"],
                         "parsed_dash": result["parsed_dash"],
-                        "audio_bytes": audio_bytes # 儲存音檔
+                        "audio_bytes": audio_bytes 
                     })
                     st.rerun() 
 
                 except Exception as e:
                     st.error(f"運算中斷：{str(e)}")
 
-# ==========================================
-# 4. 右側欄：即時戰略分析板 (Dashboard)
-# ==========================================
 with col_dash:
     st.subheader("📊 實時動態分析板")
     st.markdown("*(擷取自最新一輪 AI 運算結果)*")
@@ -178,7 +160,7 @@ with col_dash:
         st.markdown("**1. 啟用模組 (激活)**")
         st.info(d.get("modules", "無"))
         
-        st.markdown("**2. 使用者標籤**")
+        st.markdown("**2. 使用者標籤 / 庫存**")
         st.caption(d.get("tags", "無"))
         
         st.markdown("**3. 意圖判讀及應對策略 A**")
@@ -208,13 +190,12 @@ with col_dash:
         st.markdown("**8. 融合決策**")
         st.success(d.get("fusion", "無"))
         
-        st.markdown("**9. 新目標 (D) / 目標庫存**")
+        st.markdown("**9. 新目標 (D)**")
         st.write(d.get("new_goal", "無"))
         
         st.markdown("**10. 決定次輪策略 (D)**")
         st.warning(d.get("next_strategy", "無"))
         
-        # 🔥 將 Raw Log 流放到最角落
         st.divider()
         st.caption("⚙️ 開發者底層監控")
         with st.expander("🔍 展開底層原始運算 Log (Raw Data)", expanded=False):
