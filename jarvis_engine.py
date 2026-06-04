@@ -58,8 +58,7 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
     
     # 清理與分割邏輯
     clean_text = re.sub(r"^```[a-z]*\n", "", full_text, flags=re.MULTILINE)
-    clean_text = re.sub(r"\n
-```$", "", clean_text, flags=re.MULTILINE)
+    clean_text = re.sub(r"\n```$", "", clean_text, flags=re.MULTILINE)
     
     internal_text, output_text = "", ""
     out_match = re.search(r"<jarvis_output>(.*?)</jarvis_output>", clean_text, flags=re.DOTALL | re.IGNORECASE)
