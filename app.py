@@ -1,5 +1,5 @@
 # ==========================================
-# app.py
+# app.py (已修正語音無限接收 Bug)
 # ==========================================
 import streamlit as st
 import streamlit.components.v1 as components 
@@ -35,10 +35,14 @@ def render_audio_player(audio_bytes, autoplay=False):
 
 st.set_page_config(page_title="Jarvis Core", layout="wide", initial_sidebar_state="expanded")
 
+# 初始化 session_state
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "available_models" not in st.session_state:
     st.session_state.available_models = []
+# 【修正】新增紀錄最後一次處理過的語音 hash 值，避免 rerun 時重複觸發
+if "last_audio_hash" not in st.session_state:
+    st.session_state.last_audio_hash = None
 
 with st.sidebar:
     st.title("⚙️ 系統核心控制")
@@ -48,33 +52,30 @@ with st.sidebar:
         if st.button("🔄 刷新模型") or not st.session_state.available_models:
             st.session_state.available_models = engine.fetch_available_models(api_key)
         if st.session_state.available_models:
-            # 需求 5: 預設抓取包含 flash 的模型 (例如 gemini-1.5-flash)
             default_idx = next((i for i, m in enumerate(st.session_state.available_models) if "flash" in m.lower()), 0)
             selected_model = st.selectbox("🤖 運算核心", st.session_state.available_models, index=default_idx)
             
-    # 需求 2: 重置對話按鈕
     if st.button("🗑️ 清空並重置對話"):
         st.session_state.messages = []
+        st.session_state.last_audio_hash = None  # 重置時一併清空語音紀錄
         st.rerun()
 
     st.divider()
     
-    # 需求 4: 目標改為下拉式選項
     st.markdown("### 🎯 當前戰略優先目標")
     priority_goal = st.selectbox(
         "選擇優先目標",
         ["經濟收入", "提升知識", "陪伴", "健康", "圓導向"],
-        index=0 # 預設選擇第一項 (經濟收入)
+        index=0 
     )
     st.caption("*(可被系統自動偵測之「圓導向」覆寫)*")
 
-    # 需求 3: 左側預設加載啟用所有模組
     st.markdown("### 📦 動態戰術模組掛載")
     all_modules_list = [mod for cat in cfg.MODULES_FOR_UI.values() for mod in cat.keys()]
     selected_modules = st.multiselect(
         "選擇要啟用或移除的模組", 
         all_modules_list, 
-        default=all_modules_list # 預設載入全部模組
+        default=all_modules_list 
     )
 
 col_chat, col_dash = st.columns([6, 4], gap="large")
@@ -92,12 +93,26 @@ with col_chat:
     audio_val = st.audio_input("語音指令...")
     text_val = st.chat_input("或輸入文字指令...")
     
-    if audio_val or text_val:
+    # 【修正】建立判斷邏輯，決定本次重整頁面是否需要送出請求
+    need_process = False
+    is_audio = False
+    
+    if text_val:
+        need_process = True
+    elif audio_val:
+        current_audio_hash = hash(audio_val.getvalue())
+        # 只有當前語音的 hash 與上次不同時，才判定為新語音
+        if current_audio_hash != st.session_state.last_audio_hash:
+            need_process = True
+            is_audio = True
+            st.session_state.last_audio_hash = current_audio_hash
+
+    # 【修正】改由 need_process 旗標控制是否執行 AI 運算
+    if need_process:
         if not api_key:
             st.error("先生，請先配置金鑰。")
             st.stop()
             
-        is_audio = bool(audio_val)
         display_text = "*(接收到語音訊號)*" if is_audio else text_val
         
         st.session_state.messages.append({"role": "user", "content": display_text})
