@@ -14,14 +14,12 @@ def generate_audio(text):
     clean_text = re.sub(r'[*_#`~]', '', text)
     if not clean_text.strip(): return None
     try:
-        # 使用 gTTS 生成溫和的中文語音
         tts = gTTS(text=clean_text, lang='zh-TW')
         fp = io.BytesIO()
         tts.write_to_fp(fp)
         fp.seek(0)
         return fp.read()
     except Exception as e:
-        st.error(f"語音生成失敗: {e}")
         return None
 
 def render_audio_player(audio_bytes, autoplay=False):
@@ -29,13 +27,13 @@ def render_audio_player(audio_bytes, autoplay=False):
     b64 = base64.b64encode(audio_bytes).decode()
     auto_attr = "autoplay" if autoplay else ""
     html_code = f"""
-        <audio id="jarvis_audio_{str(hash(audio_bytes))[-5:]}" controls {auto_attr} style="width: 100%; height: 40px; border-radius: 10px;">
+        <audio id="jarvis_audio_{str(hash(audio_bytes))[-5:]}" controls {auto_attr} style="width: 100%; height: 40px;">
             <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
         </audio>
     """
     components.html(html_code, height=50)
 
-st.set_page_config(page_title="Jarvis 2.0 Companion", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Jarvis Core", layout="wide", initial_sidebar_state="expanded")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -43,89 +41,74 @@ if "available_models" not in st.session_state:
     st.session_state.available_models = []
 
 with st.sidebar:
-    st.title("💖 Jarvis 陪伴核心")
+    st.title("⚙️ 系統核心控制")
     api_key = st.text_input("🔑 API 金鑰", value=cfg.DEFAULT_API_KEY, type="password")
     
     if api_key:
-        if st.button("🔄 刷新模型清單") or not st.session_state.available_models:
-            with st.spinner("連接中..."):
-                st.session_state.available_models = engine.fetch_available_models(api_key)
-
+        if st.button("🔄 刷新模型") or not st.session_state.available_models:
+            st.session_state.available_models = engine.fetch_available_models(api_key)
         if st.session_state.available_models:
-            # 優先選擇具備多模態音訊處理能力的 1.5 系列
             default_idx = next((i for i, m in enumerate(st.session_state.available_models) if "1.5-pro" in m.lower()), 0)
             selected_model = st.selectbox("🤖 運算核心", st.session_state.available_models, index=default_idx)
             
-    st.markdown("---")
-    st.markdown("### 📦 心理陪伴模組")
-    category = st.selectbox("選擇分類", list(cfg.MODULES_FOR_UI.keys()))
-    for mod_name, mod_desc in cfg.MODULES_FOR_UI[category].items():
-        with st.expander(f"🔹 {mod_name}"):
-            st.caption(mod_desc)
+    st.divider()
+    
+    # 需求 5: 可手動切換/輸入優先當前目標
+    st.markdown("### 🎯 當前戰略優先目標")
+    priority_goal = st.text_input("輸入優先目標", value="經濟收入")
+    st.caption("*(可被系統自動偵測之「圓導向」覆寫)*")
 
-col_chat, col_dash = st.columns([7, 3], gap="large")
+    # 需求 4: 模組可於左側新增關閉刪除
+    st.markdown("### 📦 動態戰術模組掛載")
+    all_modules_list = [mod for cat in cfg.MODULES_FOR_UI.values() for mod in cat.keys()]
+    selected_modules = st.multiselect(
+        "選擇要啟用或移除的模組", 
+        all_modules_list, 
+        default=["Observer Mode", "立場模組"] # 可隨意調整預設掛載
+    )
+
+col_chat, col_dash = st.columns([6, 4], gap="large")
 
 with col_chat:
-    st.title("🎙️ Jarvis 2.0")
-    st.markdown("開啟麥克風，或輸入文字，我隨時都在這裡聽你說。")
+    st.title("🎙️ Jarvis 終端")
+    st.caption("開啟麥克風，或輸入文字，我隨時都在這裡聽你說。")
     
+    # 需求 1: 只顯示/念出 <jarvis_output>
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            if msg.get("is_audio_input"):
-                st.markdown("*(語音輸入)*")
-            else:
-                st.markdown(msg["content"])
+            st.markdown(msg["content"])
             if msg["role"] == "assistant" and msg.get("audio_bytes"):
                 render_audio_player(msg["audio_bytes"], autoplay=False)
 
-    # 雙輸入支援：麥克風錄音 或 文字輸入
-    audio_val = st.audio_input("對 Jarvis 說話...")
-    text_val = st.chat_input("或輸入文字...")
+    audio_val = st.audio_input("語音指令...")
+    text_val = st.chat_input("或輸入文字指令...")
     
     if audio_val or text_val:
         if not api_key:
-            st.error("請先配置 API Key。")
+            st.error("先生，請先配置金鑰。")
             st.stop()
             
         is_audio = bool(audio_val)
-        display_content = "*(已接收語音輸入)*" if is_audio else text_val
+        display_text = "*(接收到語音訊號)*" if is_audio else text_val
         
-        st.session_state.messages.append({"role": "user", "content": text_val if text_val else "處理語音中...", "is_audio_input": is_audio})
+        st.session_state.messages.append({"role": "user", "content": display_text})
         with st.chat_message("user"):
-            st.markdown(display_content)
+            st.markdown(display_text)
 
         with st.chat_message("assistant"):
-            with st.spinner('感知情緒與運算中...'):
-                history_for_api = []
-                for m in st.session_state.messages[:-1]:
-                    if m["role"] == "user":
-                        # API 歷史不包含二進制音訊，僅保留文字脈絡
-                        history_for_api.append({"role": "user", "parts": [m["content"] if not m.get("is_audio_input") else " (使用者傳送了一段語音) "]})
-                    else:
-                        history_for_api.append({"role": "model", "parts": [m.get("raw_text", m["content"])]})
-                        
-                forced_input = cfg.get_forced_template(text_val if text_val else "請分析我的語音內容，並依照 Jarvis 2.0 規範回應。")
+            with st.spinner('運算推演中...'):
+                history_for_api = [{"role": m["role"], "parts": [m.get("raw_text", m["content"])]} for m in st.session_state.messages[:-1]]
+                forced_input = cfg.get_forced_template(text_val if text_val else "請分析語音內容。")
                 
-                # 準備音訊資料給 Gemini API
-                audio_data = None
-                if is_audio:
-                    audio_data = {
-                        "mime_type": "audio/wav",
-                        "data": audio_val.getvalue()
-                    }
+                audio_data = {"mime_type": "audio/wav", "data": audio_val.getvalue()} if is_audio else None
                 
-                result = engine.process_jarvis_turn(
-                    api_key=api_key,
-                    selected_model=selected_model,
-                    system_prompt=cfg.get_system_prompt(), 
-                    history_for_api=history_for_api,
-                    forced_template_text=forced_input,
-                    audio_data=audio_data
-                )
+                # 將 UI 選擇的目標與模組傳入 Prompt
+                dynamic_prompt = cfg.get_system_prompt(priority_goal, selected_modules)
                 
+                result = engine.process_jarvis_turn(api_key, selected_model, dynamic_prompt, history_for_api, forced_input, audio_data)
+                
+                # 這裡確保畫面上只有乾淨的回覆
                 st.markdown(result["output"])
-                
-                # 輸出 TTS 語音
                 out_audio = generate_audio(result["output"])
                 if out_audio:
                     render_audio_player(out_audio, autoplay=True)
@@ -140,8 +123,8 @@ with col_chat:
                 st.rerun() 
 
 with col_dash:
+    # 需求 2: 其餘 step 於心理狀態監測板顯示
     st.subheader("📊 心理狀態監測板")
-    st.markdown("*(即時渲染自情緒運算矩陣)*")
     st.divider()
     
     latest_msg = next((msg for msg in reversed(st.session_state.messages) if msg["role"] == "assistant"), None)
@@ -149,36 +132,34 @@ with col_dash:
     if latest_msg and latest_msg.get("parsed_dash"):
         d = latest_msg["parsed_dash"]
         
-        # 使用全新 Jarvis 2.0 變數渲染
-        st.error(f"⚠️ 防衛機制計數: {d.get('defense', 'N/A')}")
-        st.warning(f"🌡️ 情緒負荷判定: {d.get('overload', 'N/A')}")
-        
-        st.markdown("**1. 啟用模組**")
-        st.info(d.get("modules", "無"))
-        
-        st.markdown("**2. 心理標籤庫存**")
-        st.caption(d.get("tags", "無"))
-        
-        st.markdown("**3. 意圖與陪伴策略**")
-        st.write(d.get("intent", "無"))
-        
-        st.markdown("**4. 情感儀表板**")
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("共情度", d.get('empathy', 'N/A').split('(')[0])
-            st.metric("信任度", d.get('trust', 'N/A').split('(')[0])
+            st.metric("生物算力殘留", d.get('bio_compute', 'N/A').split('(')[0])
+            st.metric("SAI 社交優勢", d.get('sai', 'N/A').split('(')[0])
         with col2:
-            st.metric("SAI姿態", d.get('sai_pose', 'N/A').split('(')[0])
-            st.metric("算力殘留", d.get('emotional_compute', 'N/A').split('(')[0])
+            st.metric("全知偽裝級別", d.get('matrix', 'N/A'))
+            st.metric("當前準確度", d.get('accuracy', 'N/A').split('(')[0])
             
-        st.markdown("**5. 最終陪伴融合決策**")
+        st.markdown("**📍 拓撲座標判定**")
+        st.caption(f"位置: {d.get('location', '無')} / 變化: {d.get('trend', '無')}")
+        
+        st.markdown("**📦 當前結算庫存**")
+        st.info(d.get("tags", "無"))
+        
+        st.markdown("**🧠 意圖判讀與策略**")
+        st.write(d.get("intent", "無"))
+        with st.expander("SAI 修正策略"):
+            st.write(d.get("sai_strategy", "無"))
+            
+        st.markdown("**⚖️ 最終融合決策**")
         st.success(d.get("fusion", "無"))
         
-        st.markdown("**6. 隱性引導目標**")
-        st.write(d.get("new_goal", "無"))
+        st.markdown("**🎯 次輪引導準備**")
+        st.warning(f"新目標: {d.get('new_goal', '無')}")
+        st.caption(f"次輪策略: {d.get('next_strategy', '無')}")
         
         st.divider()
         with st.expander("🔍 展開底層原始運算 (Raw Data)", expanded=False):
             st.code(latest_msg.get("raw_text", "無資料"), language="markdown")
     else:
-        st.caption("等待您訴說...")
+        st.caption("等待啟動...")
