@@ -48,23 +48,33 @@ with st.sidebar:
         if st.button("🔄 刷新模型") or not st.session_state.available_models:
             st.session_state.available_models = engine.fetch_available_models(api_key)
         if st.session_state.available_models:
-            default_idx = next((i for i, m in enumerate(st.session_state.available_models) if "1.5-pro" in m.lower()), 0)
+            # 需求 5: 預設抓取包含 flash 的模型 (例如 gemini-1.5-flash)
+            default_idx = next((i for i, m in enumerate(st.session_state.available_models) if "flash" in m.lower()), 0)
             selected_model = st.selectbox("🤖 運算核心", st.session_state.available_models, index=default_idx)
             
+    # 需求 2: 重置對話按鈕
+    if st.button("🗑️ 清空並重置對話"):
+        st.session_state.messages = []
+        st.rerun()
+
     st.divider()
     
-    # 需求 5: 可手動切換/輸入優先當前目標
+    # 需求 4: 目標改為下拉式選項
     st.markdown("### 🎯 當前戰略優先目標")
-    priority_goal = st.text_input("輸入優先目標", value="經濟收入")
+    priority_goal = st.selectbox(
+        "選擇優先目標",
+        ["經濟收入", "提升知識", "陪伴", "健康", "圓導向"],
+        index=0 # 預設選擇第一項 (經濟收入)
+    )
     st.caption("*(可被系統自動偵測之「圓導向」覆寫)*")
 
-    # 需求 4: 模組可於左側新增關閉刪除
+    # 需求 3: 左側預設加載啟用所有模組
     st.markdown("### 📦 動態戰術模組掛載")
     all_modules_list = [mod for cat in cfg.MODULES_FOR_UI.values() for mod in cat.keys()]
     selected_modules = st.multiselect(
         "選擇要啟用或移除的模組", 
         all_modules_list, 
-        default=["Observer Mode", "立場模組"] # 可隨意調整預設掛載
+        default=all_modules_list # 預設載入全部模組
     )
 
 col_chat, col_dash = st.columns([6, 4], gap="large")
@@ -73,7 +83,6 @@ with col_chat:
     st.title("🎙️ Jarvis 終端")
     st.caption("開啟麥克風，或輸入文字，我隨時都在這裡聽你說。")
     
-    # 需求 1: 只顯示/念出 <jarvis_output>
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
@@ -101,13 +110,10 @@ with col_chat:
                 forced_input = cfg.get_forced_template(text_val if text_val else "請分析語音內容。")
                 
                 audio_data = {"mime_type": "audio/wav", "data": audio_val.getvalue()} if is_audio else None
-                
-                # 將 UI 選擇的目標與模組傳入 Prompt
                 dynamic_prompt = cfg.get_system_prompt(priority_goal, selected_modules)
                 
                 result = engine.process_jarvis_turn(api_key, selected_model, dynamic_prompt, history_for_api, forced_input, audio_data)
                 
-                # 這裡確保畫面上只有乾淨的回覆
                 st.markdown(result["output"])
                 out_audio = generate_audio(result["output"])
                 if out_audio:
@@ -123,7 +129,6 @@ with col_chat:
                 st.rerun() 
 
 with col_dash:
-    # 需求 2: 其餘 step 於心理狀態監測板顯示
     st.subheader("📊 心理狀態監測板")
     st.divider()
     
