@@ -16,7 +16,6 @@ def extract_dashboard_data(internal_text):
         m = re.search(pattern, plain, flags=re.DOTALL | re.IGNORECASE)
         return m.group(1).strip() if m else "未解析到資料"
 
-    # 完全對應新版 Step 1 ~ 10 變數
     return {
         "location": ext_line(r"位置[：:]\s*([^\n]*)"),
         "trend": ext_line(r"變化傾向[：:]\s*([^\n]*)"),
@@ -46,21 +45,34 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
     else:
         response = chat.send_message(forced_template_text)
         
-    clean_text = re.sub(r"^```[a-z]*\n|\n```$", "", response.text, flags=re.MULTILINE)
+    full_text = response.text
     
-    # 精準切割 internal 與 output
-    out_match = re.search(r"<jarvis_output>(.*?)</jarvis_output>", clean_text, flags=re.DOTALL | re.IGNORECASE)
+    # 移除可能干擾的 Markdown 區塊標記
+    clean_text = re.sub(r"^```[a-z]*\n|\n```$", "", full_text, flags=re.MULTILINE)
+    
+    internal_text = ""
+    output_text = clean_text
+
+    # 暴力切割：尋找 <jarvis_output> 作為分水嶺
+    out_match = re.search(r"<jarvis_output>", clean_text, flags=re.IGNORECASE)
+    
     if out_match:
-        output_text = out_match.group(1).strip()
         internal_text = clean_text[:out_match.start()]
+        output_text = clean_text[out_match.end():]
     else:
-        output_text = clean_text
-        internal_text = clean_text
-        
+        # 防呆：如果 LLM 忘記寫 <jarvis_output> 但有寫 </jarvis_internal>
+        in_close_match = re.search(r"</jarvis_internal>", clean_text, flags=re.IGNORECASE)
+        if in_close_match:
+            internal_text = clean_text[:in_close_match.end()]
+            output_text = clean_text[in_close_match.end():]
+
+    # 清理殘留的標籤
+    output_text = re.sub(r"</?jarvis_output>", "", output_text, flags=re.IGNORECASE).strip()
     internal_text = re.sub(r"</?jarvis_internal>", "", internal_text, flags=re.IGNORECASE).strip()
+
     return {
         "internal": internal_text,
         "output": output_text,
-        "raw_full_text": response.text,
+        "raw_full_text": full_text,
         "parsed_dash": extract_dashboard_data(internal_text)
     }
