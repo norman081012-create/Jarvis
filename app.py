@@ -6,6 +6,7 @@ import streamlit.components.v1 as components
 import base64                                
 import jarvis_config as cfg
 import jarvis_engine as engine
+import jarvis_qa                           # <--- [新增導入第五檔]
 from gtts import gTTS
 import io
 import re
@@ -125,7 +126,10 @@ with col_chat:
                 forced_input = cfg.get_forced_template(text_val if text_val else "請分析語音內容。")
                 
                 audio_data = {"mime_type": "audio/wav", "data": audio_val.getvalue()} if is_audio else None
-                dynamic_prompt = cfg.get_system_prompt(priority_goal, selected_modules)
+                
+                # <--- [新增：意圖判定並傳遞給 get_system_prompt]
+                is_sym = jarvis_qa.is_symbiocracy_related(text_val) if text_val else False
+                dynamic_prompt = cfg.get_system_prompt(priority_goal, selected_modules, is_sym)
                 
                 result = engine.process_jarvis_turn(api_key, selected_model, dynamic_prompt, history_for_api, forced_input, audio_data)
                 
