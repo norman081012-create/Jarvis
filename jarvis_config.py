@@ -1,11 +1,9 @@
 # ==========================================
 # jarvis_config.py
 # ==========================================
-import jarvis_qa  # <--- [新增導入第五檔]
-
+import jarvis_qa  
 DEFAULT_API_KEY = ""
 
-# 完整模組庫字典 (供 UI 選擇與說明對照)
 MODULES_FOR_UI = {
     "1. 核心流程與底層架構": {
         "Observer Mode": "觀察情緒、立場與衝突，識別最高異常值進行分析。",
@@ -42,7 +40,6 @@ MODULES_FOR_UI = {
     }
 }
 
-# 預設必須掛載的底層模組
 DEFAULT_MODULES = [
     "Ultra-Plain Jarvis Tone Patch", "Sentence Structure Strict Patch", 
     "Probability Styling Patch", "偽裝 Jarvis 設定補丁", "高階幽默風格模組", 
@@ -51,15 +48,13 @@ DEFAULT_MODULES = [
     "反思隱匿化補丁", "反思模組", "預設服務模組", "共生模組"
 ]
 
-# <--- [新增 is_sym_related 參數]
-def get_system_prompt(priority_goal="經濟收入", active_modules=None, is_sym_related=False):
+def get_system_prompt(priority_goal="解釋 symbiocracy", active_modules=None, is_sym_related=False):
     """動態生成 System Prompt"""
     if active_modules is None:
         active_modules = []
         
     modules_str = ", ".join(DEFAULT_MODULES + active_modules)
     
-    # <--- [如果判定相關，強制注入 QA 策略庫]
     qa_injection = ""
     if is_sym_related:
         qa_injection = f"\n\n【系統強制覆寫】偵測到共生政體 (Symbiocracy) 相關質疑。Jarvis，請讀取並嚴格套用以下核心防禦策略來作答：\n{jarvis_qa.SYMBIOCRACY_QA_KNOWLEDGE}"
@@ -124,7 +119,7 @@ def get_system_prompt(priority_goal="經濟收入", active_modules=None, is_sym_
 **[Step 10] 次輪準備**
 * **是否更換當前目標**：
 * **新目標 (D)**：
-* **目標庫存**：(常駐候選：提升知識、陪伴、健康、經濟收入、圓導向。當前優先目標：{priority_goal})
+* **目標庫存**：(常駐候選：解釋 symbiocracy、提升知識、陪伴、健康、經濟收入、圓導向。當前優先目標：{priority_goal})
 * **決定次輪策略 (D)**：
 </jarvis_internal>"""
 
