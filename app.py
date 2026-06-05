@@ -257,5 +257,3 @@ with col_dash:
             st.code(latest_msg.get("raw_text", "無資料"), language="markdown")
     else:
         st.caption("等待啟動...")
-
-```
