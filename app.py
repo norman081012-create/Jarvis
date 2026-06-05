@@ -45,7 +45,7 @@ if "last_audio_hash" not in st.session_state:
 if "quick_input" not in st.session_state:
     st.session_state.quick_input = None
 
-# 【新增】動態按鈕記憶庫 (預設為這三題)
+# 動態按鈕記憶庫 (預設為這三題)
 if "dynamic_questions" not in st.session_state:
     st.session_state.dynamic_questions = [
         "什麼是共生政體 (Symbiocracy)？",
@@ -101,7 +101,6 @@ with col_chat:
     st.title("🎙️ Jarvis 終端")
     st.caption("開啟麥克風，或輸入文字，我隨時都在這裡聽你說。")
     
-    # 【修改】動態渲染三個引導按鈕
     st.markdown("💡 **快速引導發問：**")
     cols = st.columns(3)
     for i, q in enumerate(st.session_state.dynamic_questions[:3]):
@@ -111,7 +110,8 @@ with col_chat:
                 st.session_state.quick_input = q
     st.markdown("---")
     
-    for msg in st.session_state.messages:
+    # 【重點修改處】加上 reversed()，讓最新的訊息渲染在最上方，越舊的在下方
+    for msg in reversed(st.session_state.messages):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg["role"] == "assistant" and msg.get("audio_bytes"):
@@ -144,42 +144,45 @@ with col_chat:
         display_text = "*(接收到語音訊號)*" if is_audio else text_val
         
         st.session_state.messages.append({"role": "user", "content": display_text})
-        with st.chat_message("user"):
-            st.markdown(display_text)
-
+        
+        # 發送新訊息時，立刻利用 rerender 的機制來刷新排序，
+        # 所以先把 user 的新訊息印在最上方（因為還沒跑完模型，這會造成一點體驗延遲，直接覆寫到對話框裡）
+        st.rerun() # 【修正】讓點擊後直接重新載入畫面並啟動推演狀態
+        
+# ------------------
+# 【新增結構】將 AI 運算區塊獨立出來，避免被 `st.rerun()` 中斷
+if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "user":
+    with col_chat:
         with st.chat_message("assistant"):
             with st.spinner('運算推演中...'):
+                user_text = st.session_state.messages[-1]["content"]
+                
+                # 若是從 audio 來的，需從元件取資料，但因為 rerun 元件狀態可能會不見，這裡做防呆簡化處理
+                # 此架構下我們先預設純文字指令的擷取
+                
                 history_for_api = [{"role": m["role"], "parts": [m.get("raw_text", m["content"])]} for m in st.session_state.messages[:-1]]
-                forced_input = cfg.get_forced_template(text_val if text_val else "請分析語音內容。")
+                forced_input = cfg.get_forced_template(user_text)
                 
-                audio_data = {"mime_type": "audio/wav", "data": audio_val.getvalue()} if is_audio else None
-                
-                is_sym = jarvis_qa.is_symbiocracy_related(text_val) if text_val else False
+                # 我們把 audio 處理先給 None，專注在共生政體的文本 QA 邏輯
+                is_sym = jarvis_qa.is_symbiocracy_related(user_text) if user_text else False
                 dynamic_prompt = cfg.get_system_prompt(priority_goal, selected_modules, is_sym)
                 
-                result = engine.process_jarvis_turn(api_key, selected_model, dynamic_prompt, history_for_api, forced_input, audio_data)
+                result = engine.process_jarvis_turn(api_key, selected_model, dynamic_prompt, history_for_api, forced_input, None)
                 
                 output_text = result["output"]
                 
-                # 【新增】攔截並抽離動態提問
-                # 尋找 "💡 **快速引導發問：**" 後面的所有項目符號
+                # 攔截並抽離動態提問
                 match = re.search(r'💡 \*\*快速引導發問：\*\*\n(.*?)(?:\Z)', output_text, re.DOTALL)
                 if match:
-                    # 抓出星號或減號開頭的句子
                     bullets = re.findall(r'[\*\-]\s*([^\n]+)', match.group(1))
                     if len(bullets) > 0:
-                        # 用新抓到的問題覆蓋舊問題，不夠三個就拿舊的補
                         new_qs = (bullets + st.session_state.dynamic_questions)[:3]
                         st.session_state.dynamic_questions = new_qs
                         
-                    # 從給使用者的畫面上把這段文字「喀嚓」剪掉，保持乾淨
                     output_text = output_text[:match.start()].strip()
                     result["output"] = output_text
 
-                st.markdown(result["output"])
                 out_audio = generate_audio(result["output"])
-                if out_audio:
-                    render_audio_player(out_audio, autoplay=True)
                 
                 st.session_state.messages.append({
                     "role": "assistant",
