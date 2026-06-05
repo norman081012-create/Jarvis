@@ -48,25 +48,28 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
     full_text = response.text
     
     # 移除可能干擾的 Markdown 區塊標記
-    clean_text = re.sub(r"^```[a-z]*\n|\n```$", "", full_text, flags=re.MULTILINE)
+    clean_text = re.sub(r"^```[a-z]*\n|\n
+```$", "", full_text, flags=re.MULTILINE)
     
     internal_text = ""
     output_text = clean_text
 
-    # 暴力切割：尋找 <jarvis_output> 作為分水嶺
-    out_match = re.search(r"<jarvis_output>", clean_text, flags=re.IGNORECASE)
+    # 【核心修正】：使用 DOTALL 嚴格抓取 <jarvis_internal> 到 </jarvis_internal> 之間的所有內容
+    internal_match = re.search(r"<jarvis_internal>(.*?)</jarvis_internal>", clean_text, flags=re.IGNORECASE | re.DOTALL)
     
-    if out_match:
-        internal_text = clean_text[:out_match.start()]
-        output_text = clean_text[out_match.end():]
+    if internal_match:
+        # 將括號內的內容全數歸入底層儀表板
+        internal_text = internal_match.group(1).strip()
+        # 外部文字嚴格限制為 </jarvis_internal> 之後的所有內容
+        output_text = clean_text[internal_match.end():].strip()
     else:
-        # 防呆：如果 LLM 忘記寫 <jarvis_output> 但有寫 </jarvis_internal>
-        in_close_match = re.search(r"</jarvis_internal>", clean_text, flags=re.IGNORECASE)
-        if in_close_match:
-            internal_text = clean_text[:in_close_match.end()]
-            output_text = clean_text[in_close_match.end():]
+        # 防呆：如果 LLM 忘記寫閉合標籤，試著用 <jarvis_output> 來當分水嶺
+        out_match = re.search(r"<jarvis_output>", clean_text, flags=re.IGNORECASE)
+        if out_match:
+            internal_text = clean_text[:out_match.start()].strip()
+            output_text = clean_text[out_match.end():].strip()
 
-    # 清理殘留的標籤
+    # 最後清理可能殘留的標籤，確保畫面乾淨
     output_text = re.sub(r"</?jarvis_output>", "", output_text, flags=re.IGNORECASE).strip()
     internal_text = re.sub(r"</?jarvis_internal>", "", internal_text, flags=re.IGNORECASE).strip()
 
