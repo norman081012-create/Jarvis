@@ -1,3 +1,14 @@
+先生，這是個絕佳的 UX 設計！Streamlit 預設的 `st.chat_input` 會死死釘在網頁最底部，如果我們把最新對話反轉到最上方，使用者的視線確實會在這兩者之間來回拉扯，體驗非常不佳。
+
+為了解決這個問題，我將原本的 `st.chat_input` 替換為 `st.text_input`，並搭配「送出後自動清空」的攔截機制。這讓我們可以**完全自由地將輸入框安插在「按鈕」與「對話紀錄」的正中間**。
+
+不僅如此，我還加入了一個極其滑順的細節：**AI 思考的 Loader 動畫，現在會準確地出現在對話紀錄的「最頂端」**，完美契合由上往下的閱讀動線！
+
+請直接覆寫您的 **`app.py`**：
+
+### `app.py` (自訂佈局優化版)
+
+```python
 # ==========================================
 # app.py 
 # ==========================================
@@ -36,6 +47,7 @@ def render_audio_player(audio_bytes, autoplay=False):
 
 st.set_page_config(page_title="Jarvis Core", layout="wide", initial_sidebar_state="expanded")
 
+# 初始化 Session States
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "available_models" not in st.session_state:
@@ -45,7 +57,18 @@ if "last_audio_hash" not in st.session_state:
 if "quick_input" not in st.session_state:
     st.session_state.quick_input = None
 
-# 動態按鈕記憶庫 (預設為這三題)
+# 文字輸入框的中介變數 (用來做到按下 Enter 後自動清空)
+if "txt_input" not in st.session_state:
+    st.session_state.txt_input = ""
+if "pending_text" not in st.session_state:
+    st.session_state.pending_text = ""
+
+def handle_text_submit():
+    if st.session_state.txt_input.strip():
+        st.session_state.pending_text = st.session_state.txt_input
+        st.session_state.txt_input = ""  
+
+# 動態按鈕記憶庫
 if "dynamic_questions" not in st.session_state:
     st.session_state.dynamic_questions = [
         "什麼是共生政體 (Symbiocracy)？",
@@ -69,7 +92,6 @@ with st.sidebar:
     if st.button("🗑️ 清空並重置對話"):
         st.session_state.messages = []
         st.session_state.last_audio_hash = None 
-        # 重置時也恢復預設按鈕
         st.session_state.dynamic_questions = [
             "什麼是共生政體 (Symbiocracy)？",
             "S、R、A 系統分別代表什麼？",
@@ -99,27 +121,32 @@ col_chat, col_dash = st.columns([6, 4], gap="large")
 
 with col_chat:
     st.title("🎙️ Jarvis 終端")
-    st.caption("開啟麥克風，或輸入文字，我隨時都在這裡聽你說。")
     
+    # ==========================================
+    # 區塊 1：快速引導發問按鈕 (最上方)
+    # ==========================================
     st.markdown("💡 **快速引導發問：**")
     cols = st.columns(3)
     for i, q in enumerate(st.session_state.dynamic_questions[:3]):
-        # 防呆，確保有按鈕文字才渲染
         if q.strip(): 
             if cols[i].button(q, key=f"dyn_btn_{i}"):
                 st.session_state.quick_input = q
     st.markdown("---")
     
-    # 【重點修改處】加上 reversed()，讓最新的訊息渲染在最上方，越舊的在下方
-    for msg in reversed(st.session_state.messages):
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg["role"] == "assistant" and msg.get("audio_bytes"):
-                render_audio_player(msg["audio_bytes"], autoplay=False)
+    # ==========================================
+    # 區塊 2：語音與文字輸入區 (安插在中間)
+    # ==========================================
+    col_audio, col_text = st.columns([1, 4])
+    with col_audio:
+        audio_val = st.audio_input("🎙️ 語音指令", label_visibility="collapsed")
+    with col_text:
+        # 替換掉 st.chat_input，改用一般的 text_input 才能自由定位
+        st.text_input("💬 請在此輸入問題 (按下 Enter 發送)...", key="txt_input", on_change=handle_text_submit)
 
-    audio_val = st.audio_input("語音指令...")
-    text_val = st.chat_input("或輸入文字指令...")
-    
+    text_val = st.session_state.pending_text
+    if text_val:
+        st.session_state.pending_text = ""
+
     need_process = False
     is_audio = False
     
@@ -142,28 +169,36 @@ with col_chat:
             st.stop()
             
         display_text = "*(接收到語音訊號)*" if is_audio else text_val
-        
         st.session_state.messages.append({"role": "user", "content": display_text})
-        
-        # 發送新訊息時，立刻利用 rerender 的機制來刷新排序，
-        # 所以先把 user 的新訊息印在最上方（因為還沒跑完模型，這會造成一點體驗延遲，直接覆寫到對話框裡）
-        st.rerun() # 【修正】讓點擊後直接重新載入畫面並啟動推演狀態
-        
-# ------------------
-# 【新增結構】將 AI 運算區塊獨立出來，避免被 `st.rerun()` 中斷
+        st.rerun() # 立即重整，將使用者的訊息印到下方的對話紀錄頂部
+    
+    st.markdown("### 📜 對話紀錄")
+    
+    # 建立一個佔位符，讓稍後 AI 推演的動畫，能精準出現在對話歷史的「最上方」
+    spinner_placeholder = st.empty()
+    
+    # ==========================================
+    # 區塊 3：對話紀錄 (最下方，越新的在越上面)
+    # ==========================================
+    for msg in reversed(st.session_state.messages):
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg["role"] == "assistant" and msg.get("audio_bytes"):
+                render_audio_player(msg["audio_bytes"], autoplay=False)
+
+# ==========================================
+# 觸發 AI 運算 (在 col_chat 迴圈外處理避免阻塞渲染)
+# ==========================================
 if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "user":
-    with col_chat:
+    # 把 Loader 動畫放進剛才留好的最上方佔位符裡
+    with spinner_placeholder.container():
         with st.chat_message("assistant"):
             with st.spinner('運算推演中...'):
                 user_text = st.session_state.messages[-1]["content"]
                 
-                # 若是從 audio 來的，需從元件取資料，但因為 rerun 元件狀態可能會不見，這裡做防呆簡化處理
-                # 此架構下我們先預設純文字指令的擷取
-                
                 history_for_api = [{"role": m["role"], "parts": [m.get("raw_text", m["content"])]} for m in st.session_state.messages[:-1]]
                 forced_input = cfg.get_forced_template(user_text)
                 
-                # 我們把 audio 處理先給 None，專注在共生政體的文本 QA 邏輯
                 is_sym = jarvis_qa.is_symbiocracy_related(user_text) if user_text else False
                 dynamic_prompt = cfg.get_system_prompt(priority_goal, selected_modules, is_sym)
                 
@@ -171,7 +206,7 @@ if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] 
                 
                 output_text = result["output"]
                 
-                # 攔截並抽離動態提問
+                # 攔截並抽離動態提問，更新按鈕
                 match = re.search(r'💡 \*\*快速引導發問：\*\*\n(.*?)(?:\Z)', output_text, re.DOTALL)
                 if match:
                     bullets = re.findall(r'[\*\-]\s*([^\n]+)', match.group(1))
@@ -233,3 +268,5 @@ with col_dash:
             st.code(latest_msg.get("raw_text", "無資料"), language="markdown")
     else:
         st.caption("等待啟動...")
+
+```
