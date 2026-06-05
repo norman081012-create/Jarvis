@@ -1,6 +1,7 @@
 # ==========================================
 # jarvis_qa.py
 # ==========================================
+import re
 
 # 觸發此策略檔的關鍵字清單
 TRIGGER_KEYWORDS = [
@@ -10,6 +11,9 @@ TRIGGER_KEYWORDS = [
     "教育權", "媒體權", "第三方", "裁判", "零和賽局", "共謀", "分贓", "玉石俱焚",
     "苦肉計", "軟性怠工", "放水", "賽局", "博弈", "新三權分立"
 ]
+
+# 預先編譯正規表達式，大幅降低每次比對的運算成本，解決卡頓
+_KEYWORD_PATTERN = re.compile(r'|'.join(map(re.escape, TRIGGER_KEYWORDS)), re.IGNORECASE)
 
 # 注入給 Jarvis 的最高優先級策略
 SYMBIOCRACY_QA_KNOWLEDGE = """
@@ -54,6 +58,7 @@ A 陣營(候選)策略集：1.高效執行, 2.拒絕接案, 3.消極擺爛。
 """
 
 def is_symbiocracy_related(user_input: str) -> bool:
+    """使用 Regex 進行極速比對，避免逐字迴圈造成的卡頓"""
     if not user_input:
         return False
-    return any(keyword.lower() in user_input.lower() for keyword in TRIGGER_KEYWORDS)
+    return bool(_KEYWORD_PATTERN.search(user_input))
