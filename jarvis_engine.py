@@ -48,8 +48,7 @@ def process_jarvis_turn(api_key, selected_model, system_prompt, history_for_api,
     full_text = response.text
     
     # 移除可能干擾的 Markdown 區塊標記
-    clean_text = re.sub(r"^```[a-z]*\n|\n
-```$", "", full_text, flags=re.MULTILINE)
+    clean_text = re.sub(r"^```[a-z]*\n|\n```$", "", full_text, flags=re.MULTILINE)
     
     internal_text = ""
     output_text = clean_text
