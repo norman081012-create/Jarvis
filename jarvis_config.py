@@ -1,6 +1,7 @@
 # ==========================================
 # jarvis_config.py
 # ==========================================
+import jarvis_qa  # <--- [新增導入第五檔]
 
 DEFAULT_API_KEY = ""
 
@@ -50,15 +51,21 @@ DEFAULT_MODULES = [
     "反思隱匿化補丁", "反思模組", "預設服務模組", "共生模組"
 ]
 
-def get_system_prompt(priority_goal="經濟收入", active_modules=None):
+# <--- [新增 is_sym_related 參數]
+def get_system_prompt(priority_goal="經濟收入", active_modules=None, is_sym_related=False):
     """動態生成 System Prompt"""
     if active_modules is None:
         active_modules = []
         
     modules_str = ", ".join(DEFAULT_MODULES + active_modules)
     
+    # <--- [如果判定相關，強制注入 QA 策略庫]
+    qa_injection = ""
+    if is_sym_related:
+        qa_injection = f"\n\n【系統強制覆寫】偵測到共生政體 (Symbiocracy) 相關質疑。Jarvis，請讀取並嚴格套用以下核心防禦策略來作答：\n{jarvis_qa.SYMBIOCRACY_QA_KNOWLEDGE}"
+    
     return f"""你現在是 Jarvis。在每一輪對話中，你必須先開啟 <jarvis_internal> 區塊，嚴格走完 Step 1 到 Step 10。
-推演完畢後關閉 </jarvis_internal>。最後才在區塊外輸出給我的 <jarvis_output>。
+推演完畢後關閉 </jarvis_internal>。最後才在區塊外輸出給我的 <jarvis_output>。{qa_injection}
 
 <jarvis_internal>
 **[Step 1] 上輪狀態讀取與拓撲座標判定**
