@@ -1,5 +1,5 @@
 # ==========================================
-# app.py (已修復空白問題並恢復安全金鑰輸入)
+# app.py 
 # ==========================================
 import streamlit as st
 import streamlit.components.v1 as components 
@@ -34,10 +34,8 @@ def render_audio_player(audio_bytes, autoplay=False):
     """
     components.html(html_code, height=50)
 
-# 初始化頁面設定
 st.set_page_config(page_title="Jarvis Core", layout="wide", initial_sidebar_state="expanded")
 
-# 初始化 Session State
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "available_models" not in st.session_state:
@@ -47,10 +45,17 @@ if "last_audio_hash" not in st.session_state:
 if "quick_input" not in st.session_state:
     st.session_state.quick_input = None
 
+# 【新增】動態按鈕記憶庫 (預設為這三題)
+if "dynamic_questions" not in st.session_state:
+    st.session_state.dynamic_questions = [
+        "什麼是共生政體 (Symbiocracy)？",
+        "S、R、A 系統分別代表什麼？",
+        "Swap 換位機制如何防範政黨擺爛？"
+    ]
+
 with st.sidebar:
     st.title("⚙️ 系統核心控制")
     
-    # 【安全機制】恢復側邊欄輸入，不留存任何明碼
     api_key = st.text_input("🔑 API 金鑰 (安全性輸入)", type="password")
     selected_model = "gemini-1.5-flash"
 
@@ -64,6 +69,12 @@ with st.sidebar:
     if st.button("🗑️ 清空並重置對話"):
         st.session_state.messages = []
         st.session_state.last_audio_hash = None 
+        # 重置時也恢復預設按鈕
+        st.session_state.dynamic_questions = [
+            "什麼是共生政體 (Symbiocracy)？",
+            "S、R、A 系統分別代表什麼？",
+            "Swap 換位機制如何防範政黨擺爛？"
+        ]
         st.rerun()
 
     st.divider()
@@ -90,15 +101,14 @@ with col_chat:
     st.title("🎙️ Jarvis 終端")
     st.caption("開啟麥克風，或輸入文字，我隨時都在這裡聽你說。")
     
-    # 【功能】快速引導按鈕
+    # 【修改】動態渲染三個引導按鈕
     st.markdown("💡 **快速引導發問：**")
-    col_b1, col_b2, col_b3 = st.columns(3)
-    if col_b1.button("什麼是共生政體 (Symbiocracy)？"): 
-        st.session_state.quick_input = "請解釋什麼是共生政體 (Symbiocracy)？"
-    if col_b2.button("S、R、A 系統分別代表什麼？"): 
-        st.session_state.quick_input = "S、R、A 系統分別代表什麼？"
-    if col_b3.button("Swap 換位機制如何防範擺爛？"): 
-        st.session_state.quick_input = "請說明 Swap 換位機制如何防範政黨擺爛？"
+    cols = st.columns(3)
+    for i, q in enumerate(st.session_state.dynamic_questions[:3]):
+        # 防呆，確保有按鈕文字才渲染
+        if q.strip(): 
+            if cols[i].button(q, key=f"dyn_btn_{i}"):
+                st.session_state.quick_input = q
     st.markdown("---")
     
     for msg in st.session_state.messages:
@@ -149,6 +159,23 @@ with col_chat:
                 
                 result = engine.process_jarvis_turn(api_key, selected_model, dynamic_prompt, history_for_api, forced_input, audio_data)
                 
+                output_text = result["output"]
+                
+                # 【新增】攔截並抽離動態提問
+                # 尋找 "💡 **快速引導發問：**" 後面的所有項目符號
+                match = re.search(r'💡 \*\*快速引導發問：\*\*\n(.*?)(?:\Z)', output_text, re.DOTALL)
+                if match:
+                    # 抓出星號或減號開頭的句子
+                    bullets = re.findall(r'[\*\-]\s*([^\n]+)', match.group(1))
+                    if len(bullets) > 0:
+                        # 用新抓到的問題覆蓋舊問題，不夠三個就拿舊的補
+                        new_qs = (bullets + st.session_state.dynamic_questions)[:3]
+                        st.session_state.dynamic_questions = new_qs
+                        
+                    # 從給使用者的畫面上把這段文字「喀嚓」剪掉，保持乾淨
+                    output_text = output_text[:match.start()].strip()
+                    result["output"] = output_text
+
                 st.markdown(result["output"])
                 out_audio = generate_audio(result["output"])
                 if out_audio:
