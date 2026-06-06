@@ -195,8 +195,8 @@ if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] 
                 
                 output_text = result["output"]
                 
-                # 攔截並抽離動態提問，更新按鈕
-                match = re.search(r'💡 \*\*快速引導發問：\*\*\n(.*?)(?:\Z)', output_text, re.DOTALL)
+                # 攔截並抽離動態提問，更新按鈕 (已增加容錯率)
+                match = re.search(r'💡\s*\**快速引導發問：\**\s*\n(.*?)(?:\Z)', output_text, re.DOTALL)
                 if match:
                     bullets = re.findall(r'[\*\-]\s*([^\n]+)', match.group(1))
                     if len(bullets) > 0:
