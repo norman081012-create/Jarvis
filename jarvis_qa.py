@@ -69,6 +69,7 @@ A 陣營(候選)策略集：1.高效執行, 2.拒絕接案, 3.消極擺爛。
 
 def is_symbiocracy_related(user_input: str) -> bool:
     """使用 Regex 進行極速比對，避免逐字迴圈造成的卡頓"""
-    if not user_input:
+    # 增加型別判定，防止系統傳入 None 或非字串物件導致 re.search 崩潰
+    if not user_input or not isinstance(user_input, str):
         return False
     return bool(_KEYWORD_PATTERN.search(user_input))
